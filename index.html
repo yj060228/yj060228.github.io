@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>써틴 트레이너</title>
+<meta name="description" content="학습한 신경망과 써틴을 두는 연습 사이트. 힌트와 판세 예측, 리더보드를 제공합니다.">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+KR:wght@400;500;600&display=swap">
+<style>
+:root{
+  color-scheme: light;
+  --bg:#E9ECF2; --surface:#FFFFFF; --surface-2:#F3F5FA; --inset:#DCE1EC;
+  --line:#CFD6E4; --line-soft:#E2E7F0;
+  --ink:#171A21; --muted:#5C6579; --faint:#8A93A6;
+  --accent:#36479E; --accent-ink:#2A3880; --accent-soft:#E3E7F8;
+  --gold:#9A6B00; --gold-soft:#F7ECD4;
+  --suit-red:#B9382C; --suit-black:#20242D;
+  --card-face:#FCFCFE; --card-line:#D8DDE9; --card-ink:#15181F;
+  --good:#1F6F4A; --bad:#A63A2E;
+  --font-ui:"IBM Plex Sans KR", system-ui, -apple-system, "Malgun Gothic", sans-serif;
+  --font-data:"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --r:10px;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  color-scheme: dark;
+  --bg:#0F1218; --surface:#181C25; --surface-2:#1F2430; --inset:#0A0D12;
+  --line:#2B3342; --line-soft:#222A36;
+  --ink:#E7EBF3; --muted:#98A2B6; --faint:#6E7889;
+  --accent:#8E9DFF; --accent-ink:#B9C3FF; --accent-soft:#232A45;
+  --gold:#E0AC4B; --gold-soft:#332A15;
+  --suit-red:#B0362A; --suit-black:#1A1E26;
+  --card-face:#EEF0F6; --card-line:#B9C0D0; --card-ink:#12151C;
+  --good:#5BC08C; --bad:#FF8A7A;
+}}
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --bg:#0F1218; --surface:#181C25; --surface-2:#1F2430; --inset:#0A0D12;
+  --line:#2B3342; --line-soft:#222A36;
+  --ink:#E7EBF3; --muted:#98A2B6; --faint:#6E7889;
+  --accent:#8E9DFF; --accent-ink:#B9C3FF; --accent-soft:#232A45;
+  --gold:#E0AC4B; --gold-soft:#332A15;
+  --suit-red:#B0362A; --suit-black:#1A1E26;
+  --card-face:#EEF0F6; --card-line:#B9C0D0; --card-ink:#12151C;
+  --good:#5BC08C; --bad:#FF8A7A;
+}
+*{box-sizing:border-box}
+body{margin:0;min-height:100%;background:var(--bg);color:var(--ink);font-family:var(--font-ui);font-size:15px;line-height:1.55;-webkit-text-size-adjust:100%}
+.wrap{max-width:900px;margin:0 auto;padding:0 16px;padding-block:14px;display:flex;flex-direction:column;gap:12px}
+h1{font-size:17px;font-weight:600;margin:0;letter-spacing:-.01em}
+button{font:inherit;color:inherit;cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* 헤더 */
+.bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.brand{display:flex;align-items:baseline;gap:8px;margin-right:auto}
+.brand .sub{font-size:12px;color:var(--faint);font-family:var(--font-data)}
+.btn{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:7px 12px;font-size:13px;font-weight:500;transition:background .13s,border-color .13s}
+.btn:hover{border-color:var(--accent);background:var(--surface-2)}
+.btn[disabled]{opacity:.42;cursor:not-allowed}
+.btn[disabled]:hover{border-color:var(--line);background:var(--surface)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.primary:hover{background:var(--accent-ink);border-color:var(--accent-ink)}
+:root[data-theme="dark"] .btn.primary, :root:not([data-theme="light"]) .btn.primary{color:#10131b}
+@media (prefers-color-scheme: light){:root:not([data-theme="dark"]) .btn.primary{color:#fff}}
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-family:var(--font-data);padding:4px 9px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--muted)}
+.chip.on{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.dot{width:6px;height:6px;border-radius:50%;background:currentColor}
+
+/* 테이블 */
+.table{background:var(--inset);border:1px solid var(--line);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:14px}
+.seats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.seat{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:9px 10px;display:flex;flex-direction:column;gap:5px;min-width:0}
+.seat.active{border-color:var(--gold);box-shadow:inset 0 0 0 1px var(--gold)}
+.seat .who{display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:13px;font-weight:500}
+.seat .cnt{font-family:var(--font-data);font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.seat .state{font-size:11px;color:var(--faint);min-height:16px}
+.seat .state.warn{color:var(--gold);font-weight:500}
+.backs{display:flex;gap:2px;height:14px;align-items:center;flex-wrap:nowrap;overflow:hidden}
+.back{width:8px;height:13px;border-radius:2px;background:var(--accent);opacity:.45;flex:0 0 auto}
+
+/* 바닥 */
+.pile{min-height:104px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;border:1px dashed var(--line);border-radius:var(--r);padding:12px 10px;background:color-mix(in srgb, var(--surface) 40%, transparent)}
+.pile .lbl{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);font-family:var(--font-data)}
+.pile .meta{font-size:12px;color:var(--muted)}
+.row-cards{display:flex;gap:5px;flex-wrap:wrap;justify-content:center}
+
+/* 카드 */
+.card{position:relative;width:46px;height:64px;border-radius:7px;background:var(--card-face);border:1px solid var(--card-line);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;font-family:var(--font-data);color:var(--card-ink);padding:0;line-height:1;transition:transform .12s,box-shadow .12s,border-color .12s}
+.card .rk{font-size:16px;font-weight:600;letter-spacing:-.02em}
+.card .st{font-size:15px}
+.card.red .rk,.card.red .st{color:var(--suit-red)}
+.card.blk .rk,.card.blk .st{color:var(--suit-black)}
+.card.sm{width:38px;height:53px}
+.card.sm .rk{font-size:13px}.card.sm .st{font-size:12px}
+.hand .card{cursor:pointer}
+.hand .card:hover{transform:translateY(-4px)}
+.hand .card.sel{transform:translateY(-9px);border-color:var(--accent);box-shadow:0 0 0 2px var(--accent)}
+.hand .card.dim{background:color-mix(in srgb, var(--card-face) 42%, var(--inset));border-color:var(--line)}
+.hand .card.dim .rk,.hand .card.dim .st{opacity:.42}
+.hand{display:flex;gap:5px;flex-wrap:wrap;justify-content:center;min-height:64px}
+
+/* 내 자리 */
+.mine{display:flex;flex-direction:column;gap:9px}
+.mine-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px}
+.verdict{font-family:var(--font-data);font-size:12px;padding:3px 8px;border-radius:6px;border:1px solid var(--line);background:var(--surface);color:var(--muted)}
+.verdict.ok{color:var(--good);border-color:color-mix(in srgb,var(--good) 45%,var(--line))}
+.verdict.no{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 45%,var(--line))}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+
+/* 패널 */
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px 13px;display:flex;flex-direction:column;gap:9px}
+.panel h2{font-size:13px;font-weight:600;margin:0;letter-spacing:.01em}
+.hintlist{display:flex;flex-direction:column;gap:6px}
+.hintrow{display:flex;align-items:center;gap:9px;font-size:13px}
+.hintrow .bar-wrap{display:block;flex:1;height:6px;background:var(--surface-2);border-radius:3px;overflow:hidden;min-width:40px}
+.hintrow .bar-fill{display:block;height:100%;background:var(--accent);border-radius:3px}
+.hintrow .pct{font-family:var(--font-data);font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;min-width:38px;text-align:right}
+.hintrow .mv{font-family:var(--font-data);font-size:12px;min-width:0;overflow-wrap:anywhere}
+.log{font-family:var(--font-data);font-size:12px;color:var(--muted);max-height:150px;overflow-y:auto;display:flex;flex-direction:column;gap:3px}
+.log b{color:var(--ink);font-weight:500}
+table.score{width:100%;border-collapse:collapse;font-size:13px}
+table.score th,table.score td{text-align:right;padding:4px 6px;border-bottom:1px solid var(--line-soft)}
+table.score th:first-child,table.score td:first-child{text-align:left}
+table.score td{font-family:var(--font-data);font-variant-numeric:tabular-nums}
+table.score tr:last-child td{border-bottom:none}
+.pos{color:var(--good)}.neg{color:var(--bad)}
+.field{display:flex;align-items:center;gap:9px;font-size:13px;flex-wrap:wrap}
+.field label{color:var(--muted);min-width:78px}
+input[type=range]{flex:1;min-width:110px;accent-color:var(--accent)}
+select{font:inherit;font-size:13px;background:var(--surface-2);color:var(--ink);border:1px solid var(--line);border-radius:7px;padding:5px 8px}
+.val{font-family:var(--font-data);font-size:12px;color:var(--muted);min-width:46px;text-align:right;font-variant-numeric:tabular-nums}
+.note{font-size:12px;color:var(--faint);line-height:1.5}
+.banner{border:1px solid var(--gold);background:var(--gold-soft);color:var(--gold);border-radius:var(--r);padding:9px 11px;font-size:13px;font-weight:500}
+
+.acct{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.avatar{width:34px;height:34px;border-radius:50%;border:1px solid var(--line);flex:0 0 auto;object-fit:cover;background:var(--surface-2)}
+.acct .nm{font-weight:600;font-size:15px}
+.acct .sm{font-size:12px;color:var(--muted);font-family:var(--font-data)}
+input[type=text]{font:inherit;font-size:14px;background:var(--surface-2);color:var(--ink);border:1px solid var(--line);border-radius:7px;padding:7px 10px;min-width:0;flex:1 1 150px}
+input[type=text]:focus{border-color:var(--accent);outline:none}
+.rankno{font-family:var(--font-data);color:var(--muted);width:2em}
+tr.me td{background:var(--accent-soft)}
+tr.me td:first-child{font-weight:600}
+.tabs{display:flex;gap:4px;background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r);padding:3px}
+.tabs button{flex:1;background:transparent;border:none;border-radius:7px;padding:7px 10px;font-size:13px;font-weight:500;color:var(--muted)}
+.tabs button[aria-selected="true"]{background:var(--surface);color:var(--ink);box-shadow:0 0 0 1px var(--line)}
+.seg{display:inline-flex;gap:2px;background:var(--surface-2);border:1px solid var(--line);border-radius:7px;padding:2px;margin-left:auto}
+.seg button{background:transparent;border:none;border-radius:5px;padding:3px 9px;font-size:12px;color:var(--muted)}
+.seg button[aria-selected="true"]{background:var(--surface);color:var(--ink)}
+.panel h2.row{display:flex;align-items:center;gap:8px}
+.code{font-family:var(--font-data);font-size:26px;font-weight:600;letter-spacing:.14em;color:var(--accent)}
+.roomline{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.plist{display:flex;flex-direction:column;gap:6px}
+.prow{display:flex;align-items:center;gap:9px;font-size:14px;padding:6px 9px;border:1px solid var(--line-soft);border-radius:8px;background:var(--surface-2)}
+.prow .tag{font-size:11px;color:var(--faint);font-family:var(--font-data)}
+.prow.turn{border-color:var(--gold);background:var(--gold-soft)}
+.prow .cnt{margin-left:auto;font-family:var(--font-data);font-size:12px;color:var(--muted)}
+.timer{font-family:var(--font-data);font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.timer.low{color:var(--bad)}
+#viewRules p{margin:0 0 10px}
+#viewRules p:last-child{margin-bottom:0}
+.rulerow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:7px 0;border-bottom:1px solid var(--line-soft)}
+.rulerow:last-of-type{border-bottom:none}
+.rulelabel{font-size:13px;font-weight:500;min-width:112px}
+.rulenote{font-size:12px;color:var(--muted)}
+.rulelist{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px;font-size:14px}
+.ladder{display:flex;flex-direction:column;gap:4px;margin:4px 0 10px}
+.lstep{display:flex;align-items:center;gap:8px;padding:7px 11px;border:1px solid var(--line);border-radius:8px;background:var(--surface-2);font-size:14px}
+.lstep:first-child{border-color:var(--accent);background:var(--accent-soft)}
+.lname{font-weight:500}
+.lnote{margin-left:auto;font-size:12px;color:var(--muted)}
+.example{border:1px solid var(--line);border-radius:var(--r);padding:11px 13px;background:var(--surface-2);margin:4px 0 10px}
+.example p{margin:0 0 6px}
+.example p:last-child{margin-bottom:0}
+.calc{font-family:var(--font-data);font-size:16px}
+#viewRules .row-cards{justify-content:flex-start;gap:4px}
+[hidden]{display:none!important}
+.hidden{display:none!important}
+@media (max-width:560px){
+  .seats{grid-template-columns:1fr 1fr}
+  .card{width:40px;height:56px}.card .rk{font-size:14px}.card .st{font-size:13px}
+  .hand{gap:4px;min-height:56px}
+}
+@media (prefers-reduced-motion: reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <div class="bar">
+    <div class="brand">
+      <h1>써틴 트레이너</h1>
+      <span class="sub" id="engineChip">ISMCTS</span>
+    </div>
+    <span class="chip" id="modelChip"><span class="dot"></span><span id="modelLabel">기본 탐색 AI</span></span>
+    <button class="btn" id="btnRules">규칙</button>
+    <button class="btn" id="btnSettings">설정</button>
+    <button class="btn primary" id="btnNew">새 게임</button>
+  </div>
+
+  <div class="tabs" role="tablist">
+    <button id="tabSolo" role="tab" aria-selected="true">AI 연습</button>
+    <button id="tabMp" role="tab" aria-selected="false">친구와 대전</button>
+  </div>
+
+  <div id="viewRules" hidden></div>
+
+  <div id="viewSolo">
+
+  <div class="panel hidden" id="settings">
+    <h2>설정</h2>
+    <div class="field">
+      <label for="selPlayers">인원</label>
+      <select id="selPlayers"><option value="2">2인</option><option value="3">3인</option><option value="4" selected>4인</option></select>
+      <span class="note">바꾸면 다음 게임부터 적용돼요</span>
+    </div>
+    <div class="field">
+      <label for="rngIters">탐색 횟수</label>
+      <input type="range" id="rngIters" min="100" max="2000" step="100" value="600">
+      <span class="val" id="valIters">600</span>
+    </div>
+    <div class="field">
+      <label for="rngBlend">평가 방식</label>
+      <input type="range" id="rngBlend" min="0" max="100" step="10" value="50">
+      <span class="val" id="valBlend">반반</span>
+    </div>
+    <p class="note">평가 방식은 새 국면의 점수를 어떻게 매길지 정해요. 왼쪽 끝은 끝까지 무작위로 둬 보고(롤아웃), 오른쪽 끝은 가치망 예측만 써요. 모델을 올리지 않으면 이 값은 쓰이지 않아요.</p>
+    <div class="field">
+      <label>내 모델</label>
+      <button class="btn" id="btnLoad">weights.bin 올리기</button>
+      <button class="btn hidden" id="btnClear">제거</button>
+      <input type="file" id="fileModel" accept=".bin" class="hidden">
+    </div>
+    <p class="note" id="modelNote">학습한 <code>weights.bin</code>을 올리면 그 신경망이 AI를 이끌어요. 파일은 이 브라우저에만 저장되고 어디로도 전송되지 않아요. 언제든 다시 올려서 교체할 수 있어요.</p>
+  </div>
+
+
+  </div>
+
+  <div class="panel" id="account">
+    <h2>플레이어</h2>
+    <div id="accountBody"><p class="note">계정을 확인하는 중…</p></div>
+  </div>
+
+  <div class="banner hidden" id="banner"></div>
+
+  <div id="viewSolo2">
+  <div class="table">
+    <div class="seats" id="seats"></div>
+
+    <div class="pile" id="pile">
+      <div class="lbl" id="pileLabel">바닥</div>
+      <div class="row-cards" id="pileCards"></div>
+      <div class="meta" id="pileMeta">선이 첫 수를 냅니다</div>
+    </div>
+
+    <div class="mine">
+      <div class="mine-head">
+        <strong>내 패</strong>
+        <span class="cnt" id="myCount"></span>
+        <span class="verdict" id="verdict">카드를 골라 주세요</span>
+        <span class="chip hidden" id="evalChip" title="가치망이 예측한 이 판의 최종 점수"></span>
+      </div>
+      <div class="hand" id="hand"></div>
+      <div class="actions">
+        <button class="btn primary" id="btnPlay" disabled>내기</button>
+        <button class="btn" id="btnPass" disabled>패스</button>
+        <button class="btn" id="btnHint">힌트</button>
+        <button class="btn" id="btnClearSel">선택 해제</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel hidden" id="hintPanel">
+    <h2>AI 추천</h2>
+    <div class="hintlist" id="hintList"></div>
+    <p class="note">막대는 AI가 그 수를 얼마나 많이 검토했는지예요. 길수록 AI가 선호하는 수예요.</p>
+  </div>
+
+  <div class="panel">
+    <h2>이번 자리</h2>
+    <table class="score" id="scoreTable"></table>
+  </div>
+
+  <div class="panel">
+    <h2>진행</h2>
+    <div class="log" id="log"></div>
+  </div>
+
+  </div>
+
+  <div id="viewMp" hidden>
+    <div class="panel" id="mpPanel">
+      <h2>친구와 대전</h2>
+      <div id="mpBody"><p class="note">준비 중…</p></div>
+    </div>
+    <div class="panel hidden" id="mpTablePanel">
+      <div class="table">
+        <div class="plist" id="mpSeats"></div>
+        <div class="pile" id="mpPile">
+          <div class="lbl" id="mpPileLabel">바닥</div>
+          <div class="row-cards" id="mpPileCards"></div>
+          <div class="meta" id="mpPileMeta"></div>
+        </div>
+        <div class="mine">
+          <div class="mine-head">
+            <strong>내 패</strong>
+            <span class="cnt" id="mpMyCount"></span>
+            <span class="verdict" id="mpVerdict">기다리는 중</span>
+            <span class="timer" id="mpTimer"></span>
+          </div>
+          <div class="hand" id="mpHand"></div>
+          <div class="actions">
+            <button class="btn primary" id="mpPlay" disabled>내기</button>
+            <button class="btn" id="mpPass" disabled>패스</button>
+            <button class="btn" id="mpClear">선택 해제</button>
+            <button class="btn hidden" id="mpAgain">한 판 더</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="panel hidden" id="mpScorePanel">
+      <h2>방 점수</h2>
+      <table class="score" id="mpScore"></table>
+    </div>
+    <div class="panel hidden" id="mpLogPanel">
+      <h2>진행</h2>
+      <div class="log" id="mpLog"></div>
+    </div>
+  </div>
+
+  <div class="panel" id="lbPanel">
+    <h2 class="row">리더보드
+      <span class="seg" id="lbMode">
+        <button data-mode="solo" aria-selected="true">AI 전적</button>
+        <button data-mode="mp" aria-selected="false">멀티 전적</button>
+      </span>
+    </h2>
+    <table class="score" id="lbTable"></table>
+    <p class="note" id="lbNote"></p>
+  </div>
+
+  <p class="note" id="footNote">족보는 싱글·페어·트리플·스트레이트·플러쉬·풀하우스·포카드·스트레이트플러쉬이고, 5장 족보끼리는 스트레이트플러쉬 &gt; 포카드 &gt; 풀하우스 &gt; 플러쉬 &gt; 스트레이트 순이에요. 2가 가장 높고, 무늬는 ♠ &gt; ♦ &gt; ♥ &gt; ♣ 순이에요. 스트레이트는 A-2-3-4-5가 가장 높고 3-4-5-6-7이 가장 낮으며, J-Q-K-A-2처럼 2를 넘어 이어지는 건 인정되지 않아요.</p>
+</div>
+
+<script src="config.js"></script>
+<script src="engine.js"></script>
+<script src="auth.js"></script>
+<script src="app.js"></script>
+<script src="multiplayer.js"></script>
+<script src="rules.js"></script>
+</body>
+</html>
