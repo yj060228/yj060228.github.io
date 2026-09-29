@@ -12,7 +12,7 @@ const ID_DOMAIN = 'example.com';
 const ACC = {
   sb: null, user: null, rec: null, rows: [],
   ready: false, busy: false, error: '', mode: 'login',
-  boardMode: 'solo', hasMp: true,
+  boardMode: 'solo', hasMp: true, myRank: null,
 };
 
 const esc = (t) => { const d = document.createElement('div'); d.textContent = t; return d.innerHTML; };
@@ -104,7 +104,7 @@ async function signIn(id, pw) {
 
 async function signOut() {
   if (ACC.sb) await ACC.sb.auth.signOut();
-  ACC.user = null; ACC.rec = null;
+  ACC.user = null; ACC.rec = null; ACC.myRank = null;
   renderAccount(); renderBoard();
 }
 
