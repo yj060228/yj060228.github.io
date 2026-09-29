@@ -7,6 +7,7 @@ const COIN = {
   open: false, balance: null, locked: 0, isAdmin: false,
   rows: [], busy: false, err: '', msg: '',
   to: '', amount: '', gTo: '', gAmount: '',
+  holders: null, summary: null, holdersBusy: false, holderQuery: '',
 };
 
 const won = (n) => Number(n || 0).toLocaleString('ko-KR');
@@ -41,10 +42,30 @@ async function coinLoad(quiet) {
     if (COIN.open) {
       const h = await ACC.sb.rpc('coin_history', { p_limit: 30 });
       COIN.rows = h.error ? [] : (h.data || []);
+      if (COIN.isAdmin) await loadHolders();
     }
   } catch (e) { COIN.err = e.message; }
   COIN.busy = false;
   coinChip(); coinRender();
+}
+
+/* 관리자만: 코인을 갖고 있는 사람 전체 목록 */
+async function loadHolders() {
+  if (!COIN.isAdmin) return;
+  COIN.holdersBusy = true;
+  try {
+    const [w, s] = await Promise.all([
+      ACC.sb.rpc('admin_wallets', { p_limit: 200 }),
+      ACC.sb.rpc('admin_coin_summary'),
+    ]);
+    if (w.error) throw new Error(cleanErr(w.error.message));
+    COIN.holders = w.data || [];
+    COIN.summary = s.error ? null : ((s.data && s.data[0]) || null);
+  } catch (e) {
+    COIN.holders = [];
+    COIN.err = e.message;
+  }
+  COIN.holdersBusy = false;
 }
 
 /* 코인 보내기 */
@@ -138,7 +159,8 @@ function coinRender() {
       <input type="text" id="gAmt" inputmode="numeric" placeholder="금액" value="${esc(COIN.gAmount)}">
       <button class="btn" id="gSend" ${COIN.busy ? 'disabled' : ''}>지급</button>
     </div>
-    <p class="note">내 지갑에서 빠져나갑니다. 전체 발행량은 1억 코인으로 고정이에요.</p>` : ''}
+    <p class="note">내 지갑에서 빠져나갑니다. 전체 발행량은 1억 코인으로 고정이에요.</p>
+    ${holdersHtml()}` : ''}
 
     <h3 class="subhead">주고받은 내역</h3>
     <div class="clist">${list}</div>`;
@@ -154,6 +176,84 @@ function coinRender() {
   if (grant) grant.onclick = coinGrant;
   const amt = document.getElementById('cAmt');
   if (amt) amt.onkeydown = (e) => { if (e.key === 'Enter') coinSend(); };
+
+  /* 관리자 목록 쪽 */
+  const q = document.getElementById('hQuery');
+  if (q) {
+    q.oninput = () => {
+      COIN.holderQuery = q.value;
+      const t = document.getElementById('hTable');
+      if (t) t.innerHTML = holderRows();
+      const c = document.getElementById('hCount');
+      if (c) c.textContent = holderList().length + '명';
+    };
+  }
+  const re = document.getElementById('hReload');
+  if (re) re.onclick = async () => { await loadHolders(); coinRender(); };
+  const pick = document.getElementById('hTable');
+  if (pick) {
+    /* 목록에서 아이디를 누르면 지급칸에 바로 넣어 준다 */
+    pick.onclick = (e) => {
+      const tr = e.target.closest('tr[data-name]');
+      if (!tr) return;
+      COIN.gTo = tr.dataset.name;
+      coinRender();
+      const g = document.getElementById('gAmt');
+      if (g) g.focus();
+    };
+  }
+}
+
+/* 검색어로 거른 목록 */
+function holderList() {
+  const rows = COIN.holders || [];
+  const q = COIN.holderQuery.trim().toLowerCase();
+  return q ? rows.filter((r) => (r.username || '').toLowerCase().includes(q)) : rows;
+}
+
+function holderRows() {
+  const rows = holderList();
+  if (!rows.length) {
+    return `<tr><td class="note" style="text-align:left" colspan="4">${
+      COIN.holderQuery ? '찾는 아이디가 없어요.' : '아직 코인을 가진 사람이 없어요.'}</td></tr>`;
+  }
+  const head = '<tr><th style="text-align:left">아이디</th><th>쓸 수 있음</th><th>묶임</th><th>합계</th></tr>';
+  return head + rows.map((r) => `
+    <tr data-name="${esc(r.username)}" title="누르면 지급칸에 넣어요">
+      <td style="text-align:left">${esc(r.username)}${r.is_admin ? ' <span class="tag">관리자</span>' : ''}</td>
+      <td>${won(r.balance)}</td>
+      <td class="${Number(r.locked) ? '' : 'faint'}">${won(r.locked)}</td>
+      <td><b>${won(r.held)}</b></td>
+    </tr>`).join('');
+}
+
+function holdersHtml() {
+  const s = COIN.summary;
+  const tiles = s ? `
+    <div class="stats">
+      <div class="stat"><div class="slabel">발행량</div><div class="sbig">${won(s.issued)}</div>
+        <div class="srow"><span>실제 합계</span><b>${won(s.held)}</b></div>
+        <div class="srow"><span>맞는지</span><b class="${s.ok ? 'pos' : 'neg'}">${s.ok ? '일치' : '불일치'}</b></div></div>
+      <div class="stat"><div class="slabel">유통 중</div><div class="sbig">${won(s.circulating)}</div>
+        <div class="srow"><span>가진 사람</span><b>${won(s.holders)}명</b></div>
+        <div class="srow"><span>판에 묶임</span><b>${won(s.locked_total)}</b></div></div>
+      <div class="stat"><div class="slabel">관리자 보유</div><div class="sbig">${won(s.admin_held)}</div>
+        <div class="srow"><span>남은 비율</span><b>${s.issued ? ((Number(s.admin_held) / Number(s.issued)) * 100).toFixed(1) : '0.0'}%</b></div>
+        <div class="srow"><span>나눠 준 코인</span><b>${won(Number(s.issued) - Number(s.admin_held))}</b></div></div>
+    </div>
+    ${s.ok ? '' : '<p class="note" style="color:var(--bad)">발행량과 실제 합계가 다릅니다. 장부를 확인해 주세요.</p>'}` : '';
+
+  return `
+    <h3 class="subhead">코인 보유 현황 (관리자)</h3>
+    ${tiles}
+    <div class="sendrow" style="margin-top:9px">
+      <input type="text" id="hQuery" placeholder="아이디로 찾기" value="${esc(COIN.holderQuery)}" autocomplete="off">
+      <span class="note" id="hCount">${holderList().length}명</span>
+      <button class="btn" id="hReload" ${COIN.holdersBusy ? 'disabled' : ''}>${COIN.holdersBusy ? '불러오는 중…' : '새로고침'}</button>
+    </div>
+    <div class="holders"><table class="score" id="hTable">${holderRows()}</table></div>
+    <p class="note">코인이 1개라도 있는 사람만 나와요. 많이 가진 순서이고 최대 200명까지 보여줘요.
+       줄을 누르면 위 지급칸에 그 아이디가 들어가요.</p>`;
 }
 
 /* 열고 닫기 */

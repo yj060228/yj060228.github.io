@@ -221,6 +221,11 @@ tr.gap td{text-align:center;color:var(--faint);padding:2px 0;letter-spacing:.3em
 .cashbox{border:1px solid var(--line);border-radius:var(--r);background:var(--surface-2);padding:11px 13px;display:flex;flex-direction:column;gap:8px}
 .cashbox .acct{margin:0}
 .settle{border:1px solid var(--gold);border-radius:var(--r);background:var(--gold-soft);padding:10px 13px;margin-top:4px}
+.holders{max-height:340px;overflow-y:auto;border:1px solid var(--line-soft);border-radius:8px;padding:4px 11px 8px;background:var(--surface-2)}
+.holders table{width:100%}
+.holders tr[data-name]{cursor:pointer}
+.holders tr[data-name]:hover td{background:var(--accent-soft)}
+.faint{color:var(--faint)}
 [hidden]{display:none!important}
 .hidden{display:none!important}
 @media (max-width:560px){
