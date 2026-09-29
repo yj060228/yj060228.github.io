@@ -4,19 +4,34 @@ const MP = {
   state: null, hand: [], selected: new Set(),
   sub: null, poll: null, tick: null, busy: false, err: '',
   name: '', codeInput: '',          /* 입력칸 내용. 화면을 다시 그려도 유지되게 */
+  cash: false, stake: 100,          /* 캐시 게임 설정 */
 };
 const MPCFG = window.THIRTEEN_CONFIG || {};
 const FN_URL = MPCFG.SUPABASE_URL ? MPCFG.SUPABASE_URL + '/functions/v1/thirteen' : '';
 const mpReady = () => !!(FN_URL && MPCFG.SUPABASE_ANON_KEY);
 
-/* ───────── 서버 호출 ───────── */
+/* ───────── 서버 호출 ─────────
+ * 로그인했으면 내 로그인 토큰을 같이 보냅니다.
+ * 서버는 이 토큰으로 "누가 보냈는지"를 직접 확인해요. 그래서 남의 계정을 적어 보내도 소용이 없습니다. */
+async function mpAuthHeader() {
+  try {
+    if (ACC.sb) {
+      const { data } = await ACC.sb.auth.getSession();
+      if (data && data.session && data.session.access_token) {
+        return 'Bearer ' + data.session.access_token;
+      }
+    }
+  } catch (_) {}
+  return 'Bearer ' + MPCFG.SUPABASE_ANON_KEY;
+}
+
 async function mpCall(action, extra) {
   const res = await fetch(FN_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       apikey: MPCFG.SUPABASE_ANON_KEY,
-      Authorization: 'Bearer ' + MPCFG.SUPABASE_ANON_KEY,
+      Authorization: await mpAuthHeader(),
     },
     body: JSON.stringify({ action, ...extra }),
   });
@@ -105,6 +120,21 @@ function mpRenderLobby() {
       <select id="mpN"><option value="2">2인</option><option value="3">3인</option><option value="4" selected>4인</option></select>
       <button class="btn primary" id="mpCreate">방 만들기</button>
     </div>
+    <div class="cashbox">
+      <label class="switch">
+        <input type="checkbox" id="mpCash" ${MP.cash ? 'checked' : ''} ${canCash() ? '' : 'disabled'}>
+        <span>캐시 게임</span>
+      </label>
+      <div class="acct${MP.cash ? '' : ' hidden'}" id="mpStakeRow">
+        <label class="note" for="mpStake">1점당</label>
+        <select id="mpStake">${STAKES.map((s) =>
+          `<option value="${s}"${s === MP.stake ? ' selected' : ''}>${s.toLocaleString()}코인</option>`).join('')}</select>
+        <span class="note" id="mpBuyin">바이인 ${(MP.stake * 100).toLocaleString()}코인</span>
+      </div>
+      <p class="note">${canCash()
+        ? '벌점 1점당 고른 금액만큼 참가자끼리 주고받아요. 판을 시작할 때 100점분(바이인)이 잠시 묶이고, 한 판에 잃는 금액은 그 안에서 끝나요.'
+        : '캐시 게임은 로그인해야 쓸 수 있어요.'}</p>
+    </div>
     <div class="acct">
       <input type="text" id="mpCode" maxlength="4" placeholder="방 코드" value="${esc(MP.codeInput)}" style="text-transform:uppercase;flex:0 1 120px">
       <button class="btn" id="mpJoin">입장</button>
@@ -114,6 +144,14 @@ function mpRenderLobby() {
   /* 입력한 값을 먼저 읽어 둡니다. 화면을 다시 그리면 입력칸이 새로 만들어지기 때문이에요. */
   $('mpName').oninput = (e) => { MP.name = e.target.value; };
   $('mpCode').oninput = (e) => { MP.codeInput = e.target.value.toUpperCase(); };
+  $('mpCash').onchange = (e) => {
+    MP.cash = e.target.checked;
+    $('mpStakeRow').classList.toggle('hidden', !MP.cash);
+  };
+  $('mpStake').onchange = (e) => {
+    MP.stake = +e.target.value;
+    $('mpBuyin').textContent = `바이인 ${(MP.stake * 100).toLocaleString()}코인`;
+  };
 
   $('mpCreate').onclick = () => {
     const name = ($('mpName').value || '').trim();
@@ -121,7 +159,10 @@ function mpRenderLobby() {
     MP.name = name;
     mpDo(async () => {
       if (!name) throw new Error('닉네임을 입력해 주세요.');
-      mpEnter(await mpCall('create', { name, nPlayers: n, userId: mpUserId(), noLog: mpNoLog() }));
+      mpEnter(await mpCall('create', {
+        name, nPlayers: n, noLog: mpNoLog(),
+        stake: MP.cash && canCash() ? MP.stake : 0,
+      }));
     });
   };
   $('mpJoin').onclick = () => {
@@ -131,13 +172,15 @@ function mpRenderLobby() {
     mpDo(async () => {
       if (!name) throw new Error('닉네임을 입력해 주세요.');
       if (!code) throw new Error('방 코드를 입력해 주세요.');
-      mpEnter(await mpCall('join', { code, name, userId: mpUserId(), noLog: mpNoLog() }));
+      mpEnter(await mpCall('join', { code, name, noLog: mpNoLog() }));
     });
   };
   $('mpCode').onkeydown = (e) => { if (e.key === 'Enter') $('mpJoin').click(); };
   $('mpName').onkeydown = (e) => { if (e.key === 'Enter') ($('mpCode').value.trim() ? $('mpJoin') : $('mpCreate')).click(); };
 }
-const mpUserId = () => (ACC.user && ACC.user.id) || null;
+/* 판돈 후보: 100 ~ 10000 코인, 100 단위 */
+const STAKES = [100, 200, 300, 500, 1000, 2000, 3000, 5000, 10000];
+const canCash = () => !!(ACC.sb && ACC.user);
 /* 내 기록 화면에서 저장을 끄면 이 방의 내 기록도 남기지 않는다 */
 const mpNoLog = () => (typeof myLoggingOn === 'function' ? !myLoggingOn() : false);
 
@@ -150,10 +193,18 @@ function mpRenderRoom() {
   $('mpBody').innerHTML = `
     <div class="roomline">
       <span class="code">${esc(st.code)}</span>
+      ${st.stake ? `<span class="chip cash">◈ 1점당 ${st.stake.toLocaleString()}</span>` : ''}
       <button class="btn" id="mpCopy">링크 복사</button>
       <button class="btn" id="mpLeave" style="margin-left:auto">방 나가기</button>
     </div>
     <p class="note" id="mpCopyNote">${waiting ? '이 코드나 링크를 친구에게 보내세요.' : `${st.round}번째 판 진행 중`}</p>
+    ${st.stake ? `<p class="note">캐시 게임이에요. 판을 시작하면 ${st.buyin.toLocaleString()}코인이 묶이고,
+       끝나면 벌점 1점당 ${st.stake.toLocaleString()}코인씩 주고받아요.</p>` : ''}
+    ${st.cash ? `<div class="settle"><div class="slabel">정산</div>${st.cash.rows.map((r) => `
+      <div class="drow"><span class="dname">${esc(r.name)}</span>
+        <span class="note">${r.points > 0 ? '+' : ''}${r.points}점</span>
+        <span class="dpt ${r.points > 0 ? 'pos' : r.points < 0 ? 'neg' : ''}">${r.points > 0 ? '+' : ''}${(r.points * st.cash.stake).toLocaleString()}코인</span>
+      </div>`).join('')}</div>` : ''}
     <div class="plist">${st.players.map((p) => `
       <div class="prow${!waiting && st.turn === p.seat && st.winner < 0 ? ' turn' : ''}">
         <span>${esc(p.name)}</span>
@@ -283,9 +334,11 @@ async function mpRefresh() {
     const r = await mpCall('view', { token: MP.token });
     const before = MP.state && MP.state.winner;
     MP.state = r.state;
-    /* 한 판이 막 끝났으면 내 기록 화면도 새로 불러온다 */
-    if (typeof myOnGameEnd === 'function'
-        && r.state && r.state.winner >= 0 && before !== undefined && before < 0) myOnGameEnd();
+    /* 한 판이 막 끝났으면 내 기록과 코인 잔액을 새로 불러온다 */
+    if (r.state && r.state.winner >= 0 && before !== undefined && before < 0) {
+      if (typeof myOnGameEnd === 'function') myOnGameEnd();
+      if (typeof coinRefresh === 'function') coinRefresh();
+    }
     MP.seat = r.seat ?? null;
     const same = r.hand.length === MP.hand.length && r.hand.every((c, i) => c === MP.hand[i]);
     if (!same) { MP.hand = r.hand; MP.selected.clear(); }
@@ -338,6 +391,7 @@ function toggleRules(open) {
   el.hidden = open === undefined ? !el.hidden : !open;
   if (!el.hidden) {
     if (typeof toggleMyPage === 'function') toggleMyPage(false);
+    if (typeof toggleCoins === 'function') toggleCoins(false);
     el.scrollIntoView({ block: 'start', behavior: 'smooth' });
   }
 }

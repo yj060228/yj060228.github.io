@@ -254,6 +254,7 @@ function renderBoard() {
   renderAccount = function () {
     const r = orig.apply(this, arguments);
     if (typeof myOnAuth === 'function') myOnAuth();
+    if (typeof coinOnAuth === 'function') coinOnAuth();
     return r;
   };
 })();

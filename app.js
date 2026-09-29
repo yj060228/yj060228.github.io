@@ -275,16 +275,21 @@ async function logSoloGame() {
   const payload = {
     action: 'log_solo', deal: UI.rec.deal, moves: UI.rec.moves, seat: 0,
     name: (ACC.rec && ACC.rec.username) || '나',
-    userId: (ACC.user && ACC.user.id) || null,
   };
   UI.rec = null;
   try {
+    /* 누구의 기록인지는 서버가 로그인 토큰으로 직접 확인합니다 */
+    let auth = 'Bearer ' + CFGA.SUPABASE_ANON_KEY;
+    if (ACC.sb) {
+      const { data } = await ACC.sb.auth.getSession();
+      if (data && data.session && data.session.access_token) auth = 'Bearer ' + data.session.access_token;
+    }
     await fetch(fn, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         apikey: CFGA.SUPABASE_ANON_KEY,
-        Authorization: 'Bearer ' + CFGA.SUPABASE_ANON_KEY,
+        Authorization: auth,
       },
       body: JSON.stringify(payload),
     });

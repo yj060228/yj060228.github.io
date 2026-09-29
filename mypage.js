@@ -160,6 +160,7 @@ function toggleMyPage(open) {
   MY.open = !el.hidden;
   if (MY.open) {
     if (typeof toggleRules === 'function') toggleRules(false);
+    if (typeof toggleCoins === 'function') toggleCoins(false);
     el.scrollIntoView({ block: 'start', behavior: 'smooth' });
     if (ACC.sb && ACC.user) myLoad(); else myRender();
   }

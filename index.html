@@ -203,6 +203,23 @@ tr.me td:first-child{font-weight:600}
 .switch{display:flex;align-items:center;gap:7px;font-size:13px}
 .switch input{width:16px;height:16px;accent-color:var(--accent)}
 .sep{border:none;border-top:1px solid var(--line-soft);margin:16px 0 11px}
+.chip.coin{cursor:pointer;gap:5px;border-color:var(--gold);background:var(--gold-soft)}
+.chip.coin b{font-family:var(--font-data);font-weight:600}
+.chip.coin .cicon{color:var(--gold)}
+.chip.coin .clock{font-size:11px;color:var(--muted)}
+.chip.cash{border-color:var(--gold);background:var(--gold-soft);font-family:var(--font-data)}
+.cbal{border:1px solid var(--line);border-radius:var(--r);background:var(--surface-2);padding:13px 15px}
+.cbig{font-family:var(--font-data);font-size:32px;font-weight:600;line-height:1.1}
+.sendrow{display:flex;gap:7px;flex-wrap:wrap;align-items:center}
+.sendrow input{flex:1 1 130px;min-width:0}
+.sendrow input+input{flex:0 1 110px}
+.clist{display:flex;flex-direction:column;gap:4px}
+.crow{display:flex;align-items:center;gap:9px;font-size:13px;padding:7px 10px;border:1px solid var(--line-soft);border-radius:8px;background:var(--surface-2)}
+.cwho{color:var(--muted);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.camt{margin-left:auto;font-family:var(--font-data);font-weight:600;white-space:nowrap}
+.cashbox{border:1px solid var(--line);border-radius:var(--r);background:var(--surface-2);padding:11px 13px;display:flex;flex-direction:column;gap:8px}
+.cashbox .acct{margin:0}
+.settle{border:1px solid var(--gold);border-radius:var(--r);background:var(--gold-soft);padding:10px 13px;margin-top:4px}
 [hidden]{display:none!important}
 .hidden{display:none!important}
 @media (max-width:560px){
@@ -222,7 +239,9 @@ tr.me td:first-child{font-weight:600}
       <span class="sub" id="engineChip">ISMCTS</span>
     </div>
     <span class="chip" id="modelChip"><span class="dot"></span><span id="modelLabel">기본 탐색 AI</span></span>
+    <button class="chip coin" id="coinChip" hidden></button>
     <button class="btn" id="btnRules">규칙</button>
+    <button class="btn" id="btnCoins">코인</button>
     <button class="btn" id="btnMy">내 기록</button>
     <button class="btn" id="btnSettings">설정</button>
     <button class="btn primary" id="btnNew">새 게임</button>
@@ -234,6 +253,13 @@ tr.me td:first-child{font-weight:600}
   </div>
 
   <div id="viewRules" hidden></div>
+
+  <div id="viewCoins" hidden>
+    <div class="panel">
+      <h2 class="row">코인<button class="btn" id="coinsClose" style="margin-left:auto">닫기</button></h2>
+      <div id="coinBody"></div>
+    </div>
+  </div>
 
   <div id="viewMy" hidden>
     <div class="panel">
@@ -387,5 +413,6 @@ tr.me td:first-child{font-weight:600}
 <script src="multiplayer.js"></script>
 <script src="rules.js"></script>
 <script src="mypage.js"></script>
+<script src="coins.js"></script>
 </body>
 </html>
