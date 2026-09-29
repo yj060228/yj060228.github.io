@@ -108,17 +108,59 @@ async function signOut() {
   renderAccount(); renderBoard();
 }
 
+/* 리더보드에 보여 줄 인원 */
+const BOARD_TOP = 25;
+
+/* 서버에서 상위 명단을 받아온다.
+ * 정렬과 "1판 이상" 거르기를 서버에서 해야 합니다.
+ * 그냥 아무나 받아와서 브라우저에서 줄 세우면,
+ * 가입자가 늘었을 때 1등이 명단에 아예 안 들어올 수 있어요. */
 async function loadBoard() {
-  if (!online()) return;
+  if (!online()) { renderBoard(); return; }
+  const mp = ACC.boardMode === 'mp' && ACC.hasMp;
+  const totalCol = mp ? 'mp_total' : 'total';
+  const gamesCol = mp ? 'mp_games' : 'games';
+
   if (ACC.hasMp) {
     const r = await ACC.sb.from('profiles')
-      .select('id,username,total,games,wins,mp_total,mp_games,mp_wins').limit(50);
-    if (!r.error) { ACC.rows = r.data || []; renderBoard(); return; }
+      .select('id,username,total,games,wins,mp_total,mp_games,mp_wins')
+      .gt(gamesCol, 0)
+      .order(totalCol, { ascending: false })
+      .limit(BOARD_TOP);
+    if (!r.error) { ACC.rows = r.data || []; await loadMyRank(); return; }
     ACC.hasMp = false;          /* 멀티플레이 SQL 을 아직 실행하지 않은 경우 */
   }
   const { data, error } = await ACC.sb.from('profiles')
-    .select('id,username,total,games,wins').limit(50);
+    .select('id,username,total,games,wins')
+    .gt('games', 0)
+    .order('total', { ascending: false })
+    .limit(BOARD_TOP);
   if (!error) ACC.rows = data || [];
+  await loadMyRank();
+}
+
+/* 내가 상위 명단 밖이면 내 등수를 따로 구해서 맨 아래에 붙여 준다 */
+async function loadMyRank() {
+  ACC.myRank = null;
+  const rec = ACC.rec;
+  if (!ACC.user || !rec) { renderBoard(); return; }
+
+  const mp = ACC.boardMode === 'mp' && ACC.hasMp;
+  const totalCol = mp ? 'mp_total' : 'total';
+  const gamesCol = mp ? 'mp_games' : 'games';
+  const myTotal = Number(rec[totalCol] || (mp ? 0 : rec.total) || 0);
+  const myGames = Number(rec[gamesCol] || (mp ? 0 : rec.games) || 0);
+
+  if (myGames > 0 && !ACC.rows.some((r) => r.id === ACC.user.id)) {
+    try {
+      /* 나보다 점수가 높은 사람이 몇 명인지 세면 그게 내 등수 − 1 */
+      const { count, error } = await ACC.sb.from('profiles')
+        .select('id', { count: 'exact', head: true })
+        .gt(gamesCol, 0)
+        .gt(totalCol, myTotal);
+      if (!error && count !== null) ACC.myRank = count + 1;
+    } catch (_) { /* 등수를 못 구해도 표는 그대로 보여 준다 */ }
+  }
   renderBoard();
 }
 
@@ -223,29 +265,43 @@ function renderBoard() {
     seg.classList.toggle('hidden', !online() || !ACC.hasMp);
     for (const b of seg.children) b.setAttribute('aria-selected', String(b.dataset.mode === ACC.boardMode));
   }
-  let rows = ACC.rows.slice()
-    .map((r) => ({ id: r.id, username: r.username, total: r[F[0]] || 0, games: r[F[1]] || 0, wins: r[F[2]] || 0 }))
+  const pick = (r) => ({
+    id: r.id, username: r.username,
+    total: r[F[0]] || 0, games: r[F[1]] || 0, wins: r[F[2]] || 0,
+  });
+  /* 서버가 이미 정렬해서 보내 주지만, 한 판 뒀을 때 바로 반영되도록 한 번 더 줄 세웁니다 */
+  let rows = ACC.rows.slice().map(pick)
     .filter((r) => r.games > 0)
     .sort((a, b) => b.total - a.total)
-    .slice(0, 25);
-  if (!online()) rows = ACC.rec ? [{ id: 'local', ...ACC.rec }] : [];
+    .slice(0, BOARD_TOP);
+  if (!online()) rows = ACC.rec ? [{ id: 'local', ...pick(ACC.rec) }] : [];
+
+  const row = (r, rank) => {
+    const rate = r.games ? Math.round((r.wins / r.games) * 100) : 0;
+    const me = ACC.user ? r.id === ACC.user.id : true;
+    const cls = r.total > 0 ? 'pos' : r.total < 0 ? 'neg' : '';
+    return `<tr class="${me ? 'me' : ''}"><td class="rankno">${rank}</td>
+      <td style="text-align:left">${esc(r.username || '이름 없음')}</td>
+      <td class="${cls}">${r.total > 0 ? '+' : ''}${r.total}</td>
+      <td>${r.games}</td><td>${rate}%</td></tr>`;
+  };
+
   if (!rows.length) {
     t.innerHTML = `<tr><td class="note" style="text-align:left">아직 ${mp ? '친구와 대전' : 'AI 연습'} 기록이 없어요. 한 판 두면 여기에 올라와요.</td></tr>`;
   } else {
     const head = '<tr><th>#</th><th style="text-align:left">아이디</th><th>승점</th><th>판수</th><th>승률</th></tr>';
-    t.innerHTML = head + rows.map((r, i) => {
-      const rate = r.games ? Math.round((r.wins / r.games) * 100) : 0;
-      const me = ACC.user ? r.id === ACC.user.id : true;
-      const cls = r.total > 0 ? 'pos' : r.total < 0 ? 'neg' : '';
-      return `<tr class="${me ? 'me' : ''}"><td class="rankno">${i + 1}</td>
-        <td style="text-align:left">${esc(r.username || '이름 없음')}</td>
-        <td class="${cls}">${r.total > 0 ? '+' : ''}${r.total}</td>
-        <td>${r.games}</td><td>${rate}%</td></tr>`;
-    }).join('');
+    let html = head + rows.map((r, i) => row(r, i + 1)).join('');
+    /* 내가 상위 명단 밖이면 맨 아래에 내 줄을 따로 붙인다 */
+    if (ACC.myRank && ACC.rec && !rows.some((r) => r.id === (ACC.user && ACC.user.id))) {
+      html += `<tr class="gap"><td colspan="5">⋯</td></tr>`
+            + row({ ...pick(ACC.rec), id: ACC.user.id }, ACC.myRank);
+    }
+    t.innerHTML = html;
   }
+
+  const where = mp ? '친구와 대전' : 'AI 연습';
   note.textContent = !online() ? '지금은 이 브라우저에만 기록돼요.'
-    : mp ? '친구와 대전에서 쌓은 누적 승점이에요.'
-         : 'AI 연습에서 쌓은 누적 승점이에요.';
+    : `${where}에서 쌓은 누적 승점이에요. 한 판 이상 둔 사람만, 상위 ${BOARD_TOP}명까지 보여요.`;
 }
 
 /* 계정 화면이 다시 그려지면 내 기록 화면에도 알려 준다 (mypage.js) */
@@ -266,7 +322,9 @@ function renderBoard() {
   seg.addEventListener('click', (e) => {
     const b = e.target.closest('button');
     if (!b) return;
+    if (ACC.boardMode === b.dataset.mode) return;
     ACC.boardMode = b.dataset.mode;
-    renderBoard();
+    /* 탭이 바뀌면 정렬 기준이 달라지므로 서버에서 다시 받아옵니다 */
+    loadBoard();
   });
 })();
