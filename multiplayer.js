@@ -5,6 +5,7 @@ const MP = {
   sub: null, poll: null, tick: null, busy: false, err: '',
   name: '', codeInput: '',          /* 입력칸 내용. 화면을 다시 그려도 유지되게 */
   cash: false, stake: 100,          /* 캐시 게임 설정 */
+  owner: null, saved: null,         /* 이 자리가 어느 계정 것인지 */
 };
 const MPCFG = window.THIRTEEN_CONFIG || {};
 const FN_URL = MPCFG.SUPABASE_URL ? MPCFG.SUPABASE_URL + '/functions/v1/thirteen' : '';
@@ -40,10 +41,17 @@ async function mpCall(action, extra) {
   return data;
 }
 
+/* 방 참가 정보는 이 브라우저에 저장해 두고 새로고침해도 이어서 둘 수 있게 합니다.
+ * 이때 "어느 계정으로 들어간 자리인지"(owner)도 같이 적어 둡니다.
+ * 이게 없으면 A가 로그아웃하고 B가 로그인했을 때 B에게 A의 자리가 그대로 남아,
+ * B가 A 대신 카드를 낼 수 있게 됩니다. 캐시 게임이면 A의 코인이 나가고요. */
 function mpSave() {
   try {
-    if (MP.token) localStorage.setItem('thirteen-mp', JSON.stringify({ code: MP.code, token: MP.token, playerId: MP.playerId }));
-    else localStorage.removeItem('thirteen-mp');
+    if (MP.token) {
+      localStorage.setItem('thirteen-mp', JSON.stringify({
+        code: MP.code, token: MP.token, playerId: MP.playerId, owner: MP.owner || null,
+      }));
+    } else localStorage.removeItem('thirteen-mp');
   } catch (_) {}
 }
 function mpLoad() {
@@ -315,6 +323,7 @@ async function mpDo(fn) {
 
 function mpEnter(r) {
   MP.code = r.code; MP.token = r.token; MP.playerId = r.playerId;
+  MP.owner = (ACC.user && ACC.user.id) || null;
   MP.state = r.state; MP.hand = r.hand || []; MP.seat = r.seat ?? null;
   MP.selected.clear();
   mpSave();
@@ -323,9 +332,40 @@ function mpEnter(r) {
 }
 function mpExit() {
   if (MP.sub) { try { MP.sub.unsubscribe(); } catch (_) {} MP.sub = null; }
-  MP.code = MP.token = MP.playerId = null;
+  MP.code = MP.token = MP.playerId = MP.owner = null;
   MP.state = null; MP.hand = []; MP.seat = null; MP.selected.clear();
   mpSave();
+}
+
+/* 로그인한 계정이 바뀌면 남의 자리를 들고 있지 않도록 정리합니다.
+ * auth.js 가 화면을 다시 그릴 때마다 불러 줍니다. */
+function mpOnAuth() {
+  const uid = (ACC.user && ACC.user.id) || null;
+
+  if (MP.token) {
+    if (MP.owner && MP.owner !== uid) {
+      /* A 로 들어간 자리인데 지금은 A 가 아니다 → 방에서 빠져나온다 */
+      mpExit();
+      MP.err = '계정이 바뀌어서 방에서 나왔어요. 방 코드를 다시 넣으면 들어갈 수 있어요.';
+      mpRender();
+    } else if (!MP.owner && uid) {
+      /* 게스트로 들어갔다가 같은 브라우저에서 로그인한 경우 — 자리는 그대로 두고 주인만 적는다 */
+      MP.owner = uid; mpSave();
+    }
+    return;
+  }
+
+  /* 새로고침 직후: 저장해 둔 자리를 지금 계정이 쓸 수 있는지 확인하고 복구 */
+  const s = MP.saved;
+  if (!s) return;
+  MP.saved = null;
+  if (s.owner && s.owner !== uid) return;        /* 남의 자리라 버린다 */
+  if (!('owner' in s) && uid) return;            /* 옛 형식이라 주인을 모른다 → 안전하게 버린다 */
+  MP.code = s.code; MP.token = s.token; MP.playerId = s.playerId;
+  MP.owner = s.owner || uid || null;
+  mpSave();
+  mpSubscribe();
+  mpRefresh();
 }
 
 async function mpRefresh() {
@@ -412,14 +452,14 @@ $('mpAgain').onclick = () => mpDo(async () => { await mpCall('again', { token: M
 (function mpInit() {
   const saved = mpLoad();
   const url = new URLSearchParams(location.search).get('room');
-  if (saved && saved.token && (!url || url.toUpperCase() === saved.code)) {
-    MP.code = saved.code; MP.token = saved.token; MP.playerId = saved.playerId;
-    mpSubscribe();
-    mpRefresh();
-  }
+  /* 바로 복구하지 않고 미뤄 둡니다. 누가 로그인해 있는지 확인한 뒤(mpOnAuth) 복구해야
+     다른 계정의 자리를 이어받는 일이 생기지 않아요. */
+  if (saved && saved.token && (!url || url.toUpperCase() === saved.code)) MP.saved = saved;
   if (url) showTab('mp');
   else { try { showTab(localStorage.getItem('thirteen-tab') || 'solo'); } catch (_) {} }
   MP.poll = setInterval(() => { if (MP.token && !document.hidden) mpRefresh(); }, 4000);
   MP.tick = setInterval(mpTimer, 1000);
+  /* 로그인 확인이 이미 끝났으면 지금 복구하고, 아직이면 끝난 뒤 auth.js 가 불러 줍니다 */
+  if (ACC.ready) mpOnAuth();
   mpRender();
 })();
