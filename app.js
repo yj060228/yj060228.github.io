@@ -72,10 +72,25 @@ const UI = {
   state: null, nPlayers: 4, iters: 600, blend: 0.5,
   selected: new Set(), busy: false, running: false, ended: false, modelName: null, modelH: 0,
   rec: null,                          /* 이번 판의 시작 패와 수순 */
+  cleared: null,                      /* 아무도 못 이겨서 돈 직전의 패 */
   totals: [0, 0, 0, 0], games: 0, logLines: [],
 };
 const $ = (id) => document.getElementById(id);
 const SEAT_NAME = (p) => (p === 0 ? '나' : 'AI ' + p);
+
+/* '나이(가)' 처럼 어색하지 않게 조사를 붙인다.
+   숫자로 끝나면 읽는 소리 기준 — AI 1이 / AI 2가 */
+const DIGIT_JONG = [true, true, false, true, false, false, true, true, true, false]; /* 영 일 이 삼 사 오 육 칠 팔 구 */
+function withSubj(name) {
+  if (name === '나') return '내가';
+  const last = name[name.length - 1];
+  const code = name.charCodeAt(name.length - 1);
+  let jong;
+  if (last >= '0' && last <= '9') jong = DIGIT_JONG[+last];
+  else if (code >= 0xac00 && code <= 0xd7a3) jong = (code - 0xac00) % 28 !== 0;
+  else return name + '이(가)';
+  return name + (jong ? '이' : '가');
+}
 
 function say(html) {
   UI.logLines.push(html);
@@ -116,12 +131,19 @@ function render() {
 
   /* 바닥 */
   const lead = s.last.type === PASS;
+  /* 아무도 못 이겨서 돈 판이면, 그 패를 흐리게 남겨 둔다 */
+  const cl = lead && UI.cleared ? UI.cleared : null;
+  $('pile').classList.toggle('cleared', !!cl);
   $('pileLabel').textContent = lead ? '선' : '바닥';
-  $('pileCards').innerHTML = lead ? '' : maskCards(s.last).map((c) => cardHtml(c, 'sm')).join('');
+  $('pileCards').innerHTML = cl
+    ? cl.cards.map((c) => cardHtml(c, 'sm done')).join('')
+    : (lead ? '' : maskCards(s.last).map((c) => cardHtml(c, 'sm')).join(''));
   if (lead) {
-    $('pileMeta').textContent = maskEmpty(s.mustInclude)
-      ? `${SEAT_NAME(s.lastPlayer)}이(가) 원하는 족보를 냅니다`
-      : `첫 수 — ${cardsText(s.mustInclude)} 를 포함해서 내야 해요`;
+    $('pileMeta').textContent = cl
+      ? `${SEAT_NAME(cl.seat)}의 ${TYPE_NAME[cl.type]} — 아무도 못 이김`
+      : (maskEmpty(s.mustInclude)
+          ? `${withSubj(SEAT_NAME(s.lastPlayer))} 원하는 족보를 냅니다`
+          : `첫 수 — ${cardsText(s.mustInclude)} 를 포함해서 내야 해요`);
   } else {
     $('pileMeta').textContent = `${SEAT_NAME(s.lastPlayer)}의 ${TYPE_NAME[s.last.type]}`;
   }
@@ -203,9 +225,34 @@ function applyMove(p, m) {
   if (m.type === PASS) say(`${SEAT_NAME(p)} 패스`);
   else say(`<b>${SEAT_NAME(p)}</b> ${TYPE_NAME[m.type]} · ${cardsText(m)}`);
   const wasLead = s.last.type === PASS;
+  if (m.type !== PASS) UI.cleared = null;
   doMove(s, m);
   if (m.type !== PASS) announce(p, before, popc(s.hand[p]));
-  if (m.type === PASS && s.last.type === PASS && !wasLead) say(`— 모두 패스, ${SEAT_NAME(s.turn)}이(가) 선 —`);
+  if (m.type === PASS && s.last.type === PASS && !wasLead) say(`— 모두 패스, ${withSubj(SEAT_NAME(s.turn))} 선 —`);
+}
+
+/* ───────── 아무도 못 이기는 수 ─────────
+ * 남은 사람들이 어차피 패스밖에 못 하는 수를 냈으면, 눌러 주지 않아도 넘어갑니다.
+ * 무슨 패로 돌았는지 볼 수 있게 잠깐 세웠다가 패스를 차례로 보여 줘요. */
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function autoPassIfUnbeatable() {
+  const s = UI.state;
+  if (s.winner >= 0 || s.last.type === PASS) return false;
+  if (!nobodyCanBeat(s, s.last)) return false;
+
+  UI.cleared = { cards: maskCards(s.last), type: s.last.type, seat: s.lastPlayer };
+  render();
+  banner(`${SEAT_NAME(s.lastPlayer)}의 ${TYPE_NAME[s.last.type]} — 아무도 못 이기는 수`);
+  await sleep(750);                       /* 무슨 패를 냈는지 보는 시간 */
+  say('— 아무도 못 이기는 수 —');
+  while (s.winner < 0 && s.last.type !== PASS) {
+    applyMove(s.turn, PASS_MOVE);
+    render();
+    await sleep(170);
+  }
+  banner('');
+  return true;
 }
 
 async function aiTurn() {
@@ -213,6 +260,7 @@ async function aiTurn() {
   UI.running = true;
   const s = UI.state;
   UI.busy = true; render();
+  await autoPassIfUnbeatable();           /* 사람이 낸 수가 못 이기는 수였던 경우 */
   while (s.winner < 0 && s.turn !== 0) {
     const p = s.turn;
     let r;
@@ -225,7 +273,8 @@ async function aiTurn() {
     }
     applyMove(p, r.move);
     render();
-    await new Promise((res) => setTimeout(res, 300));
+    await sleep(300);
+    await autoPassIfUnbeatable();         /* AI 가 낸 수가 못 이기는 수였던 경우 */
   }
   UI.busy = false;
   UI.running = false;
@@ -311,6 +360,7 @@ async function newGame() {
   seedRng(randomSeed());              /* 판마다 새로 섞기 */
   UI.state = initState(UI.nPlayers);
   UI.rec = { deal: UI.state.hand.slice(0, UI.nPlayers).map(maskCards), moves: [] };
+  UI.cleared = null;
   UI.ended = false;
   UI.running = false;
   UI.busy = false;
@@ -319,7 +369,7 @@ async function newGame() {
   banner('');
   $('hintPanel').classList.add('hidden');
   const s = UI.state;
-  say(`— ${s.n}인 게임 시작 · ${SEAT_NAME(s.turn)}이(가) 선 —`);
+  say(`— ${s.n}인 게임 시작 · ${withSubj(SEAT_NAME(s.turn))} 선 —`);
   render();
   if (s.turn !== 0) await aiTurn(); else await refreshEval();
   render();
@@ -410,7 +460,7 @@ async function useModel(buf, name) {
       if (res.ok) {
         const buf = await res.arrayBuffer();
         parseWeights(buf);
-        await useModel(buf, 'Gen 1');
+        await useModel(buf, '기본 모델');
         loaded = true;
       }
     } catch (_) {}

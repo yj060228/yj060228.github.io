@@ -238,16 +238,23 @@ function mpRenderTable() {
   const myTurn = st.turn === MP.seat && st.winner < 0 && st.status === 'playing';
 
   $('mpSeats').innerHTML = '';
+  /* 아무도 못 이겨서 돈 판이면 그 패를 흐리게 남겨 둔다 */
+  const cl = st.lead && st.winner < 0 && st.cleared ? st.cleared : null;
+  $('mpPile').classList.toggle('cleared', !!cl);
   $('mpPileLabel').textContent = st.lead ? '선' : '바닥';
-  $('mpPileCards').innerHTML = st.lastCards.map((c) => cardHtml(c, 'sm')).join('');
+  $('mpPileCards').innerHTML = cl
+    ? cl.cards.map((c) => cardHtml(c, 'sm done')).join('')
+    : st.lastCards.map((c) => cardHtml(c, 'sm')).join('');
   const lastName = (st.players.find((p) => p.seat === st.lastPlayer) || {}).name || '';
   $('mpPileMeta').textContent = st.winner >= 0
     ? '판이 끝났어요'
-    : st.lead
-      ? (st.mustInclude.length
-          ? `첫 수 — ${st.mustInclude.map((c) => RANK_STR[c >> 2] + SUIT_SYM[c & 3]).join(' ')} 포함`
-          : `${(st.players.find((p) => p.seat === st.turn) || {}).name || ''} 선`)
-      : `${lastName}의 ${TYPE_NAME[st.lastType]}`;
+    : cl
+      ? `${cl.name}의 ${TYPE_NAME[cl.type]} — 아무도 못 이김`
+      : st.lead
+        ? (st.mustInclude.length
+            ? `첫 수 — ${st.mustInclude.map((c) => RANK_STR[c >> 2] + SUIT_SYM[c & 3]).join(' ')} 포함`
+            : `${(st.players.find((p) => p.seat === st.turn) || {}).name || ''} 선`)
+        : `${lastName}의 ${TYPE_NAME[st.lastType]}`;
 
   const s = mpBuildState();
   const legal = myTurn ? legalMoves(s) : [];

@@ -321,6 +321,53 @@ function doMove(s, m) {
   s.turn = nextPlayer(s, p);
 }
 
+/* ───────── 아무도 못 이기는 수 ─────────
+ *
+ * 중요: 판정은 '공개된 정보'만 씁니다. 누구의 손패도 들여다보지 않아요.
+ *
+ * 손패를 보고 판정하면 정보가 새어 나갑니다. 예를 들어 2♦·2♥·2♠ 가 아직
+ * 안 나온 상태에서 2♣ 에 자동 패스가 걸리면, 그걸 본 사람들은 "아무도 2를
+ * 안 들고 있구나" 를 확실히 알게 됩니다. 원래라면 추측만 할 수 있는 정보예요.
+ *
+ * 그래서 '바닥에 깔린 카드' 만 보고 판정합니다. 아직 안 나온 카드는 전부
+ * 누군가 갖고 있을 수 있다고 봐요 (낸 사람 자신의 손패도 포함). 손패를 못 보는
+ * 심판이 똑같이 판정할 수 있고, 참가자 누구나 검산할 수 있습니다.
+ *
+ * 2♠ 는 늘 걸리고, 2♠ 가 이미 나갔으면 2♦ 가, 2♠·2♦ 가 나갔으면 2♥ 가
+ * 그 자리를 넘겨받습니다. 내가 2♠ 를 쥔 채 2♦ 를 내는 경우는 걸리지 않아요 —
+ * 걸리면 내가 2♠ 를 갖고 있다는 게 드러나니까요.
+ *
+ * 남은 장수도 공개 정보라 같이 씁니다. 상대가 모두 3장씩 남았는데 5장짜리를
+ * 냈다면, 아무도 5장을 낼 수 없으니 못 이깁니다. */
+const FULL_MASK = { lo: 0x00ffffff, hi: 0x0fffffff };
+
+function nobodyCanBeat(s, m) {
+  if (!m || m.type === PASS || s.winner >= 0) return false;
+
+  /* 아직 그만큼의 장수를 낼 수 있는 사람이 있는가 (남은 장수는 공개 정보) */
+  let enough = false;
+  for (let p = 0; p < s.n; p++) {
+    if (p !== s.lastPlayer && popc(s.hand[p]) >= m.count) { enough = true; break; }
+  }
+  if (!enough) return true;
+
+  /* 아직 안 나온 카드로 이 수를 이길 수 있는가 */
+  const rest = maskAndNot(FULL_MASK, s.played);
+  for (const x of genAll(rest)) {
+    if (x.count === m.count && x.key > m.key) return false;
+  }
+  return true;
+}
+
+/* 못 이기는 수면 나머지를 전부 패스시키고, 몇 명이 패스했는지 돌려준다 */
+function autoPassRound(s) {
+  if (s.winner >= 0 || s.last.type === PASS) return 0;
+  if (!nobodyCanBeat(s, s.last)) return 0;
+  let n = 0;
+  while (s.winner < 0 && s.last.type !== PASS && n < s.n) { doMove(s, PASS_MOVE); n++; }
+  return n;
+}
+
 /* 벌점: 남은 장수 x 2^(2의 개수) x (10장 이상이면 2) */
 function penalty(h) {
   const c = popc(h);
@@ -666,6 +713,7 @@ if (typeof module !== 'undefined') {
     maskEmpty, maskEq, maskSubset, emptyMask, cloneMask, countTwos, hiCard, cardStr,
     seedRng, randomSeed, rnd, genAll, legalMoves, doMove, initState, cloneState, dealCards,
     penalty, finalPoints, result, determinize, ttapActive, straightStrength,
+    nobodyCanBeat, autoPassRound, PASS_MOVE,
     stateFeatures, moveFeatures, makeRec, parseWeights, NetRunner,
     ismctsPlain, ismctsNN, STATE_FEAT, MOVE_FEAT, POINT_SCALE,
   };

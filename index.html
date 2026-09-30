@@ -90,6 +90,9 @@ button{font:inherit;color:inherit;cursor:pointer}
 .card .st{font-size:15px}
 .card.red .rk,.card.red .st{color:var(--suit-red)}
 .card.blk .rk,.card.blk .st{color:var(--suit-black)}
+/* 아무도 못 이겨서 판이 돈 패 — 다음 수가 나올 때까지 남겨 둡니다 */
+.card.done{box-shadow:0 0 0 2px var(--gold), var(--shadow)}
+.pile.cleared{border-color:var(--gold);background:var(--gold-soft)}
 .card.sm{width:38px;height:53px}
 .card.sm .rk{font-size:13px}.card.sm .st{font-size:12px}
 .hand .card{cursor:pointer}
@@ -244,7 +247,7 @@ tr.gap td{text-align:center;color:var(--faint);padding:2px 0;letter-spacing:.3em
       <h1>써틴 트레이너</h1>
       <span class="sub" id="engineChip">ISMCTS</span>
     </div>
-    <span class="chip" id="modelChip"><span class="dot"></span><span id="modelLabel">기본 모델 AI</span></span>
+    <span class="chip" id="modelChip"><span class="dot"></span><span id="modelLabel">기본 탐색 AI</span></span>
     <button class="chip coin" id="coinChip" hidden></button>
     <button class="btn" id="btnRules">규칙</button>
     <button class="btn" id="btnCoins">코인</button>
