@@ -476,6 +476,16 @@ body.modal-open{overflow:hidden}
         <input type="file" id="fileModel" accept=".bin" class="hidden">
       </div>
       <p class="note" id="modelNote">학습한 <code>weights.bin</code>을 올리면 그 신경망이 AI를 이끌어요. 파일은 이 브라우저에만 저장되고 어디로도 전송되지 않아요. 언제든 다시 올려서 교체할 수 있어요.</p>
+      <div class="field hidden" id="cashPrefRow">
+        <label for="prefCashShow">AI 캐시 게임</label>
+        <label class="switch"><input type="checkbox" id="prefCashShow"><span>메인 화면에 보이기</span></label>
+        <span class="note">끄면 AI 연습 화면에서 캐시 게임 칸이 사라져요. 이 브라우저에만 저장돼요.</span>
+      </div>
+      <div class="field hidden" id="cashAdminRow">
+        <label for="adminCashOn">관리자</label>
+        <label class="switch"><input type="checkbox" id="adminCashOn"><span>AI 캐시 게임 허용</span></label>
+        <span class="note">끄면 모든 사람 화면에서 사라지고, 진행 중이던 판은 취소되어 묶였던 코인을 돌려줘요.</span>
+      </div>
     </div>
 
 
@@ -615,16 +625,16 @@ body.modal-open{overflow:hidden}
 </div>
 
 <!-- 배포할 때마다 APP_V 를 바꾸면 브라우저가 옛 파일 대신 새 파일을 받는다 -->
-<script>window.APP_V = '20261001d';</script>
-<script src="config.js?v=20261001d"></script>
-<script src="engine.js?v=20261001d"></script>
-<script src="auth.js?v=20261001d"></script>
-<script src="app.js?v=20261001d"></script>
-<script src="multiplayer.js?v=20261001d"></script>
-<script src="rules.js?v=20261001d"></script>
-<script src="mypage.js?v=20261001d"></script>
-<script src="coins.js?v=20261001d"></script>
-<script src="review.js?v=20261001d"></script>
-<script src="solocash.js?v=20261001d"></script>
+<script>window.APP_V = '20261001e';</script>
+<script src="config.js?v=20261001e"></script>
+<script src="engine.js?v=20261001e"></script>
+<script src="auth.js?v=20261001e"></script>
+<script src="app.js?v=20261001e"></script>
+<script src="multiplayer.js?v=20261001e"></script>
+<script src="rules.js?v=20261001e"></script>
+<script src="mypage.js?v=20261001e"></script>
+<script src="coins.js?v=20261001e"></script>
+<script src="review.js?v=20261001e"></script>
+<script src="solocash.js?v=20261001e"></script>
 </body>
 </html>

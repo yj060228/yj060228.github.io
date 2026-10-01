@@ -11,6 +11,8 @@
 --     잃는 금액은 묶어 둔 코인까지, 따는 금액은 관리자가 가진 코인까지.
 --   · 기권하면 그때 내 패의 벌점 x 4 x 1점당 금액을 벌금으로 관리자에게 내고 끝낸다.
 --     기권한 판은 기록을 남기지 않고 지운다. (코인 장부에는 벌금이 남는다)
+--   · 관리자가 AI 캐시 게임을 끄면 새로 시작할 수 없고, 진행 중이던 판은 모두 취소된다.
+--     취소된 판은 정산 없이 묶었던 코인을 그대로 돌려준다.
 -- ════════════════════════════════════════════════════════════════════
 
 create table if not exists public.ai_games (
@@ -30,6 +32,23 @@ create table if not exists public.ai_games (
 create unique index if not exists ai_games_one_active on public.ai_games(user_id) where status = 'active';
 alter table public.ai_games enable row level security;
 -- 정책 없음: 브라우저에서는 보이지 않습니다. 패가 들어 있으니까요.
+
+-- ───────── 사이트 설정 (관리자가 바꾼다) ─────────
+create table if not exists public.app_settings (
+  key        text primary key,
+  value      jsonb not null,
+  updated_at timestamptz not null default now()
+);
+alter table public.app_settings enable row level security;
+-- 정책 없음: 읽고 쓰는 건 심판(서버 함수)이 대신 한다
+insert into public.app_settings(key, value) values ('ai_cash', '{"enabled": true}')
+  on conflict (key) do nothing;
+
+create or replace function public.ai_cash_enabled()
+returns boolean
+language sql stable security definer set search_path = public, pg_temp as $$
+  select coalesce((select (value->>'enabled')::boolean from app_settings where key = 'ai_cash'), true);
+$$;
 
 -- 관리자 지갑: 코인을 처음 발행받은 계정. 없으면 가장 먼저 등록된 관리자
 create or replace function public.ai_house()
@@ -54,6 +73,7 @@ begin
   if p_user is null then raise exception '로그인이 필요해요.'; end if;
   if v_house is null then raise exception '관리자 계정이 정해지지 않아서 캐시 게임을 열 수 없어요.'; end if;
   if v_house = p_user then raise exception '관리자 계정은 AI 캐시 게임을 할 수 없어요.'; end if;
+  if not ai_cash_enabled() then raise exception '관리자가 AI 캐시 게임을 꺼 두었어요.'; end if;
 
   insert into wallets(user_id) values (p_user) on conflict (user_id) do nothing;
   select balance into v_bal from wallets where user_id = p_user for update;
@@ -149,6 +169,35 @@ begin
 end $$;
 
 
+-- ───────── 켜고 끄기 ─────────
+-- 끄면 진행 중이던 판을 모두 취소한다: 정산 없이 묶었던 코인을 돌려주고 판은 지운다.
+-- 돌려준 판의 수를 돌려준다.
+create or replace function public.ai_cash_set_enabled(p_on boolean)
+returns int
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare g record; n int := 0;
+begin
+  insert into app_settings(key, value) values ('ai_cash', jsonb_build_object('enabled', p_on))
+    on conflict (key) do update set value = excluded.value, updated_at = now();
+  if p_on then return 0; end if;
+
+  for g in select * from ai_games where status = 'active' order by user_id for update loop
+    update wallets w
+       set locked  = w.locked - least(w.locked, g.locked),
+           balance = w.balance + least(w.locked, g.locked),
+           updated_at = now()
+     where w.user_id = g.user_id;
+    if g.locked > 0 then
+      insert into coin_ledger(from_user, to_user, amount, reason, ref, memo)
+        values (null, g.user_id, g.locked, 'refund', null, 'AI 캐시 게임 취소');
+    end if;
+    delete from ai_games where id = g.id;          -- 취소된 판은 남기지 않는다
+    n := n + 1;
+  end loop;
+  return n;
+end $$;
+
+
 -- ───────── 권한: 심판(서버 함수)만 부를 수 있습니다 ─────────
 revoke all on function public.ai_house()                                    from public, anon, authenticated;
 revoke all on function public.ai_cash_open(uuid, int, int, bigint, jsonb)    from public, anon, authenticated;
@@ -156,4 +205,9 @@ revoke all on function public.ai_cash_close(uuid, bigint, boolean)           fro
 grant execute on function public.ai_house()                                 to service_role;
 grant execute on function public.ai_cash_open(uuid, int, int, bigint, jsonb) to service_role;
 grant execute on function public.ai_cash_close(uuid, bigint, boolean)        to service_role;
+revoke all on function public.ai_cash_enabled()                              from public, anon, authenticated;
+revoke all on function public.ai_cash_set_enabled(boolean)                   from public, anon, authenticated;
+grant execute on function public.ai_cash_enabled()                          to service_role;
+grant execute on function public.ai_cash_set_enabled(boolean)               to service_role;
 revoke all on public.ai_games from anon, authenticated;
+revoke all on public.app_settings from anon, authenticated;
