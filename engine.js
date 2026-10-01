@@ -574,11 +574,14 @@ function randomPlayout(s) {
 
 /* 탐색 옵션 (복기에서 씀)
  *   open     : 상대 패를 다시 섞지 않고 실제 패 그대로 탐색 (모든 패를 아는 상태)
- *   focus    : 이 수(move.id)는 뿌리에서 최소 focusMin 번은 둬 보게 해서 값을 꼭 구한다 */
+ *   focus    : 이 수(move.id, 또는 그 배열)는 뿌리에서 최소 focusMin 번은 둬 보게 해서 값을 꼭 구한다 */
+const focusIds = (opts) => (opts.focus === undefined ? null
+  : new Set(Array.isArray(opts.focus) ? opts.focus : [opts.focus]));
 
 /* 신경망 없음: UCB + avails */
 function ismctsPlain(rootState, iters, c = 0.7, opts = {}) {
   const me = rootState.turn;
+  const focus = focusIds(opts);
   const rootMoves = legalMoves(rootState);
   if (rootMoves.length === 1) return { move: rootMoves[0], stats: [{ move: rootMoves[0], visits: iters }] };
 
@@ -610,9 +613,12 @@ function ismctsPlain(rootState, iters, c = 0.7, opts = {}) {
         const v = ch.wins / ch.visits + c * Math.sqrt(Math.log(ch.avails) / ch.visits);
         if (v > bestv) { bestv = v; best = ch; }
       }
-      if (node === root && opts.focus !== undefined) {
-        const fc = node.children.get(opts.focus);
-        if (fc && fc.visits < (opts.focusMin || 0)) best = fc;
+      if (node === root && focus) {
+        /* 꼭 둬 볼 수 중 아직 덜 둬 본 것부터 */
+        for (const id of focus) {
+          const fc = node.children.get(id);
+          if (fc && fc.visits < (opts.focusMin || 0) && (best === null || !focus.has(best.move.id) || fc.visits < best.visits)) best = fc;
+        }
       }
       doMove(st, best.move);
       path.push(best);
@@ -629,6 +635,7 @@ function ismctsPlain(rootState, iters, c = 0.7, opts = {}) {
 /* 신경망: PUCT + 가치망/롤아웃 혼합 */
 function ismctsNN(rootState, iters, runner, blend = 1.0, cpuct = 1.5, opts = {}) {
   const me = rootState.turn;
+  const focus = focusIds(opts);
   const rootMoves = legalMoves(rootState);
   if (rootMoves.length === 1) return { move: rootMoves[0], stats: [{ move: rootMoves[0], visits: iters }] };
 
@@ -671,10 +678,16 @@ function ismctsNN(rootState, iters, runner, blend = 1.0, cpuct = 1.5, opts = {})
         const v = q + cpuct * prior * sq / (1 + nvis);
         if (v > bestv) { bestv = v; bestIdx = i; }
       }
-      if (node === root && opts.focus !== undefined) {
-        const fc = node.children.get(opts.focus);
-        const fi = ms.findIndex((x) => x.id === opts.focus);
-        if (fi >= 0 && (!fc || fc.visits < (opts.focusMin || 0))) bestIdx = fi;
+      if (node === root && focus) {
+        /* 꼭 둬 볼 수 중 아직 덜 둬 본 것부터 */
+        let low = -1, lowVisits = Infinity;
+        for (let i = 0; i < ms.length; i++) {
+          if (!focus.has(ms[i].id)) continue;
+          const fc = node.children.get(ms[i].id);
+          const v = fc ? fc.visits : 0;
+          if (v < (opts.focusMin || 0) && v < lowVisits) { low = i; lowVisits = v; }
+        }
+        if (low >= 0) bestIdx = low;
       }
       const m = ms[bestIdx];
       const existing = node.children.get(m.id);

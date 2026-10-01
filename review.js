@@ -5,7 +5,8 @@
  *     AI 가 다시 탐색한다. 상대 패는 모르는 채로 여러 번 섞어 보며 계산한다.
  *   · 수마다 '기대 점수'(이 판이 끝났을 때 내 점수의 예상값)를 구하고,
  *     AI 가 좋게 본 수들 중 가장 높은 값과 내가 둔 수의 값 차이로 실수를 가린다.
- *   · 훌륭한 수: AI 가 고르지 않은 수인데, 모든 패를 아는 상태로 다시 탐색하면 그 수가 가장 좋고
+ *   · 모든 수에 대해, 모든 패를 아는 상태로도 한 번 더 탐색해서 '패를 알 때' 기대 점수를 같이 보여 준다.
+ *   · 훌륭한 수: AI 가 고르지 않은 수인데, 모든 패를 아는 상태로 보면 그 수가 가장 좋고
  *     실제로 그 판을 이긴 경우. 상대 패를 몰라서 AI 도 찾지 못한 결정적인 수다.
  *
  * 탐색은 무작위가 섞여서 같은 국면도 매번 1~3점쯤 흔들린다. 그래서 기준을 넉넉하게 잡았다. */
@@ -98,6 +99,19 @@ function rvClassify(step, r) {
   return { kind, loss, best, mine, aiPick: r.best, plausible: !!act && act.share >= RV_PLAUSIBLE };
 }
 
+/* 표에 보여 줄 수: AI 가 실제로 값을 구한 수 중 많이 검토한 6개 + 내가 둔 수.
+   값이 없는('–') 줄은 보여 주지 않는다 */
+const RV_SHOW = 6;
+function rvShown(stats, actualId) {
+  const rows = stats.filter((x) => x.value !== null).sort((a, b) => b.share - a.share);
+  const shown = rows.slice(0, RV_SHOW);
+  if (!shown.some((x) => x.move.id === actualId)) {
+    const act = stats.find((x) => x.move.id === actualId);
+    if (act) shown.push(act);
+  }
+  return shown;
+}
+
 /* 거의 끝난 판인지: 내 패가 얼마 안 남았거나, 그 뒤로 몇 수 안 남았으면 */
 function rvLateGame(i) {
   const step = RV.steps[i];
@@ -110,7 +124,7 @@ function rvLateGame(i) {
 function rvBrilliant(step, open) {
   const act = open.stats.find((x) => x.move.id === step.move.id);
   if (!act || act.value === null) return false;
-  const others = open.stats.filter((x) => x.move.id !== step.move.id && x.value !== null && x.share >= 0.05);
+  const others = open.stats.filter((x) => x.move.id !== step.move.id && x.value !== null && x.visits >= 20);
   const bestOther = others.reduce((a, x) => (a === null || x.value > a ? x.value : a), null);
   return bestOther === null || act.value - bestOther >= RV_SKY_GAP;
 }
@@ -148,15 +162,16 @@ async function rvRun() {
       }
       const out = { ...c, stats: r.stats, open: null };
 
-      /* AI 가 다른 수를 골랐고 이 판을 이겼다면, 모든 패를 아는 상태로 다시 본다.
+      /* 모든 패를 아는 상태로 다시 본다. 표에 보일 수들은 모두 꼭 둬 봐서 값이 빠지지 않게 */
+      const shownIds = rvShown(r.stats, step.move.id).map((x) => x.move.id);
+      const o = await ask({ cmd: 'analyze', state: step.state, iters: rvIters(), blend: UI.blend, focus: shownIds, open: true });
+      if (token !== RV.token) break;
+      out.open = o.stats;
+
+      /* 훌륭한 수: AI 가 다른 수를 골랐는데 이 판을 이겼고, 패를 알고 보면 내 수가 가장 좋았을 때.
          거의 끝난 판에서는 어떤 수든 이기기 쉬워서 훌륭한 수로 치지 않는다 */
       const won = RV.game.winner_seat === RV.seat;
-      if (won && r.best !== step.move.id && !rvLateGame(i)) {
-        const o = await ask({ cmd: 'analyze', state: step.state, iters: rvIters(), blend: UI.blend, focus: step.move.id, open: true });
-        if (token !== RV.token) break;
-        out.open = o.stats;
-        if (rvBrilliant(step, o)) out.kind = 'sky';
-      }
+      if (won && r.best !== step.move.id && !rvLateGame(i) && rvBrilliant(step, o)) out.kind = 'sky';
       RV.res[i] = out;
       RV.done++;
       rvRender();
@@ -326,12 +341,7 @@ function rvDetailHtml(i) {
     sky: '상대 패를 몰라서 AI 도 고르지 않았지만, 모든 패를 알고 보면 가장 좋은 수였고 그대로 이겼어요.',
   }[r.kind];
 
-  const rows = r.stats.slice().sort((a, b) => b.share - a.share);
-  let shown = rows.slice(0, 6);
-  if (!shown.some((x) => x.move.id === step.move.id)) {
-    const act = rows.find((x) => x.move.id === step.move.id);
-    if (act) shown = shown.concat([act]);
-  }
+  const shown = rvShown(r.stats, step.move.id);
   const openOf = (id) => {
     const o = r.open && r.open.find((x) => x.move.id === id);
     return o ? o.value : null;
