@@ -4,12 +4,18 @@ const CFGA = window.THIRTEEN_CONFIG || {};
 let worker = null, workerOk = false, reqId = 0;
 const pending = new Map();
 try {
-  worker = new Worker('worker.js');
+  /* 주소에 버전을 붙여서, 사이트를 새로 올리면 옛 워커가 캐시에서 살아나지 않게 한다 */
+  worker = new Worker('worker.js?v=' + encodeURIComponent(window.APP_V || '1'));
   worker.onmessage = (e) => {
     const p = pending.get(e.data.id);
     if (p) { pending.delete(e.data.id); e.data.ok ? p.res(e.data) : p.rej(new Error(e.data.error)); }
   };
-  worker.onerror = () => { workerOk = false; };
+  /* 워커가 죽으면 기다리던 요청이 영원히 멈추지 않게 모두 실패로 돌려준다 */
+  worker.onerror = (e) => {
+    workerOk = false;
+    for (const [, p] of pending) p.rej(new Error('AI 계산 스레드가 멈췄어요' + (e && e.message ? ': ' + e.message : '')));
+    pending.clear();
+  };
   workerOk = true;
 } catch (_) { workerOk = false; }
 
