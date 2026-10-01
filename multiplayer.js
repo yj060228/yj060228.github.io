@@ -104,7 +104,7 @@ function mpRender() {
     return;
   }
   const inRoom = !!MP.token && !!MP.state;
-  $('mpTablePanel').classList.toggle('hidden', !inRoom || MP.state.status === 'waiting');
+  $('mpTablePanel').classList.toggle('hidden', !inRoom || MP.state.status === 'waiting' || !!MP.state.stopped);
   $('mpScorePanel').classList.toggle('hidden', !inRoom);
   $('mpChatPanel').classList.toggle('hidden', !inRoom);      /* 대기실에서도 대화할 수 있게 */
   $('mpLogPanel').classList.toggle('hidden', !inRoom || MP.state.status === 'waiting');
@@ -273,7 +273,9 @@ function mpRenderRoom() {
       <button class="btn" id="mpCopy">링크 복사</button>
       <button class="btn" id="mpLeave" style="margin-left:auto">방 나가기</button>
     </div>
-    <p class="note" id="mpCopyNote">${waiting ? '이 코드나 링크를 친구에게 보내세요.' : `${st.round}번째 판 진행 중`}</p>
+    <p class="note" id="mpCopyNote">${waiting ? '이 코드나 링크를 친구에게 보내세요.' : st.stopped ? '닫힌 방' : `${st.round}번째 판 진행 중`}</p>
+    ${st.stopped ? `<p class="note" style="color:var(--bad)">관리자가 이 방을 닫았어요. 하던 판은 무효가 됐고${
+      st.stake ? ', 묶여 있던 바이인은 지갑으로 돌아갔어요' : ''}. 방 나가기를 눌러 주세요.</p>` : ''}
     ${st.stake ? `<p class="note">캐시 게임이에요. 들어올 때 바이인 <b>${st.buyin.toLocaleString()}코인</b>이 묶이고,
        판이 끝날 때마다 벌점 1점당 <b>${st.stake.toLocaleString()}코인</b>씩 그 안에서 주고받아요.
        바이인보다 적게 남아도 계속 할 수 있고, 한 판에 잃는 금액은 남은 바이인까지예요.
@@ -494,7 +496,10 @@ async function mpRefresh() {
   try {
     const r = await mpCall('view', { token: MP.token });
     const before = MP.state && MP.state.winner;
+    const wasStopped = !!(MP.state && MP.state.stopped);
     MP.state = r.state;
+    /* 관리자가 방을 닫아 바이인이 돌아왔으면 코인 잔액을 새로 불러온다 */
+    if (r.state && r.state.stopped && !wasStopped && typeof coinRefresh === 'function') coinRefresh();
     /* 한 판이 막 끝났으면 내 기록과 코인 잔액을 새로 불러온다 */
     if (r.state && r.state.winner >= 0 && before !== undefined && before < 0) {
       if (typeof myOnGameEnd === 'function') myOnGameEnd();

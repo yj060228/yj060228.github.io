@@ -854,6 +854,7 @@ function buildPublic(room, players, st) {
     cleared: (st && st.cleared) || null,
     chat: (st && st.chat) || [],
     deadline: (st && st.deadline) || 0,
+    stopped: !!(st && st.stopped),
   };
 }
 
@@ -1217,9 +1218,109 @@ async function hasCoins(userId, buyin) {
   return rows.length ? Number(rows[0].balance) >= buyin : false;
 }
 
+/* ───────── 관리자 ─────────
+ * admins 표에 있는 계정만 씁니다. 누가 보냈는지는 로그인 토큰으로 서버가 직접 확인해요. */
+async function isAdmin(uid) {
+  if (!uid) return false;
+  const rows = await sel(`/admins?user_id=eq.${uid}&select=user_id`);
+  return rows.length > 0;
+}
+const inList = (codes) => codes.map((c) => encodeURIComponent(c)).join(',');
+
+/* 최근 방과, 코인이 묶여 있는 방을 모두 보여 준다 */
+async function adminRooms() {
+  const since = new Date(nowMs() - ROOM_HOURS * 3600 * 1000).toISOString();
+  const recent = await sel(`/rooms?updated_at=gte.${encodeURIComponent(since)}`
+    + '&select=code,status,stake,buyin,n_players,host_player,public_state,updated_at&order=updated_at.desc&limit=100');
+  const seats = await sel('/cash_seats?select=room_code,user_id,stack,buyin');
+  const codes = new Set(recent.map((r) => r.code));
+  const extra = [...new Set(seats.map((x) => x.room_code))].filter((c) => !codes.has(c));
+  const old = extra.length
+    ? await sel(`/rooms?code=in.(${inList(extra)})&select=code,status,stake,buyin,n_players,host_player,public_state,updated_at`)
+    : [];
+  const rooms = recent.concat(old);
+  const all = rooms.map((r) => r.code).concat(extra.filter((c) => !old.some((r) => r.code === c)));
+  if (!all.length) return [];
+
+  const players = await sel(`/room_players?room_code=in.(${inList(all)})`
+    + '&select=room_code,name,seat,present,user_id&order=created_at');
+  return all.map((code) => {
+    const r = rooms.find((x) => x.code === code) || null;
+    const pub = (r && r.public_state) || {};
+    const mine = seats.filter((x) => x.room_code === code);
+    return {
+      code,
+      exists: !!r,
+      status: r ? r.status : 'gone',
+      stopped: !!pub.stopped,
+      stake: r ? r.stake || 0 : 0,
+      buyin: r ? buyinOf(r) : 0,
+      round: pub.round || 0,
+      live: !!(r && r.status === 'playing' && pub.winner !== undefined && pub.winner < 0),
+      updatedAt: r ? r.updated_at : null,
+      locked: mine.reduce((sum, x) => sum + Number(x.stack), 0),
+      players: players.filter((p) => p.room_code === code).map((p) => {
+        const z = mine.find((x) => x.user_id === p.user_id);
+        return {
+          name: p.name, seat: p.seat, present: p.present, guest: !p.user_id,
+          host: r ? r.host_player === p.id : false,
+          stack: z ? Number(z.stack) : null,
+        };
+      }),
+    };
+  });
+}
+
+/* 방 닫기: 하던 판은 무효로 하고, 묶여 있던 코인을 각자에게 돌려준다 */
+async function adminStop(code) {
+  const found = await loadRoom(code);
+  const returned = [];
+  const nameOf = (players, userId) => {
+    const p = (players || []).find((x) => x.user_id === userId);
+    return p ? p.name : '알 수 없음';
+  };
+
+  let st = found && found.st ? found.st : { totals: {}, log: [], round: 0 };
+  /* 이 기능을 넣기 전 방식(판마다 묶기)으로 묶인 판이 있으면 그것도 돌려준다 */
+  if (st.cashLock) {
+    try { await rpc('cash_refund', { p_ref: st.cashLock.ref }); } catch (_) {}
+  }
+  const seats = await sel(`/cash_seats?room_code=eq.${encodeURIComponent(code)}&select=user_id`);
+  for (const x of seats) {
+    const back = await seatCashout({ code }, x.user_id);
+    returned.push({ name: nameOf(found && found.players, x.user_id), amount: back });
+  }
+  if (!found) return { code, returned, closed: false };
+
+  const { room, players } = found;
+  const wasLive = !!(st.game && st.game.winner < 0);
+  st.cashLock = null;
+  st.cashRound = null;
+  st.cash = null;
+  st.game = null;
+  st.cleared = null;
+  st.deadline = 0;
+  st.stopped = true;
+  addLog(st, `— 관리자가 방을 닫았어요${wasLive ? ' · 하던 판은 무효예요' : ''} —`);
+  if (returned.length) {
+    addLog(st, '— 돌려준 코인 · ' + returned.map((x) => `${x.name} ${x.amount.toLocaleString()}`).join(' / ') + ' —');
+  }
+  await loadStacks(room, players);
+  await saveRoom(room, players, st, 'ended');
+  return { code, returned, closed: true, wasLive };
+}
+
 /* ───────── 요청 처리 ───────── */
 async function handle(body, uid) {
   const action = body.action;
+
+  if (action === 'admin_rooms' || action === 'admin_stop') {
+    if (!(await isAdmin(uid))) return fail('권한이 없어요.', 403);
+    if (action === 'admin_rooms') return json({ rooms: await adminRooms() });
+    const code = String(body.code || '').trim().toUpperCase();
+    if (!/^[A-Z0-9]{4}$/.test(code)) return fail('방 코드가 올바르지 않아요.');
+    return json(await adminStop(code));
+  }
 
   if (action === 'log_solo') {
     const g = replay(body.deal, body.moves);
@@ -1309,6 +1410,7 @@ async function handle(body, uid) {
     const found = await loadRoom(code);
     if (!found) return fail('그런 방이 없어요. 코드를 다시 확인해 주세요.', 404);
     const { room, players, st } = found;
+    if (st && st.stopped) return fail('관리자가 닫은 방이에요. 새 방을 만들어 주세요.');
     const buyin = buyinOf(room);
     const short = `코인이 모자라요. 이 방은 바이인 ${buyin.toLocaleString()}코인이 있어야 들어올 수 있어요.`;
 
@@ -1377,6 +1479,10 @@ async function handle(body, uid) {
     if (uid && uid !== me.user_id) {
       return fail('지금 로그인한 계정의 자리가 아니에요.', 403);
     }
+  }
+
+  if (st && st.stopped && action !== 'view' && action !== 'leave' && action !== 'chat') {
+    return fail('관리자가 닫은 방이에요. 방을 나가 주세요.');
   }
 
   if (action === 'start') {

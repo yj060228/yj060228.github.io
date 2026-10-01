@@ -239,6 +239,17 @@ tr.gap td{text-align:center;color:var(--faint);padding:2px 0;letter-spacing:.3em
 .holders table{width:100%}
 .holders tr[data-name]{cursor:pointer}
 .holders tr[data-name]:hover td{background:var(--accent-soft)}
+.arooms{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+.aroom{border:1px solid var(--line-soft);border-radius:8px;background:var(--surface-2);padding:9px 11px}
+.aroom.off{opacity:.6}
+.aroom .arow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.aroom .arow .code{font-family:var(--font-data);font-weight:700;letter-spacing:.08em;font-size:15px;color:var(--ink)}
+.aroom .arow .tag.pos{color:var(--good)}
+.aroom .arow .btn{margin-left:auto;padding:5px 11px}
+.aroom .aplayers{display:flex;flex-wrap:wrap;gap:6px 12px;margin-top:6px;font-size:13px}
+.aroom .rp{display:inline-flex;align-items:center;gap:5px}
+.aroom .rp b{font-family:var(--font-data);font-weight:600;color:var(--gold)}
+.aroom .rp b.neg{color:var(--bad)}
 .faint{color:var(--faint)}
 [hidden]{display:none!important}
 .hidden{display:none!important}
