@@ -54,6 +54,7 @@ button{font:inherit;color:inherit;cursor:pointer}
 .bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .brand{display:flex;align-items:baseline;gap:8px;margin-right:auto}
 .brand .sub{font-size:12px;color:var(--faint);font-family:var(--font-data)}
+.status{display:contents}   /* 좁은 화면에서는 칩이 위 막대에 그대로 섞인다 */
 .menu{display:flex;gap:10px;margin-left:auto}   /* 줄이 넘치면 버튼 다섯 개가 한 묶음으로 넘어간다 */
 .btn{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:7px 12px;font-size:13px;font-weight:500;transition:background .13s,border-color .13s}
 .btn:hover{border-color:var(--accent);background:var(--surface-2)}
@@ -264,8 +265,20 @@ tr.gap td{text-align:center;color:var(--faint);padding:2px 0;letter-spacing:.3em
 #soloLogPanel,#mpLogPanel{order:4}
 #lbPanel{order:5}
 #footNote{order:6}
+@media (min-width:561px){
+  /* 칩과 메뉴 버튼 높이를 맞춰 한 줄로 가지런히 */
+  .status .chip{height:34px;padding:0 13px;font-size:13px;gap:7px}
+  .status .chip.coin .clock{padding-left:8px;margin-left:2px;border-left:1px solid var(--line)}
+  .menu{gap:8px}
+  .menu .btn{height:34px;padding:0 14px}
+}
 @media (min-width:1180px){
   .wrap{max-width:1480px}
+  /* 위 막대도 아래 세 칸에 맞춘다: 제목은 왼쪽 칸, 모델 · 코인은 가운데 칸, 메뉴는 오른쪽 끝 */
+  .bar{display:grid;grid-template-columns:300px minmax(0,1fr) auto;gap:16px;align-items:center}
+  .brand{margin-right:0}
+  .status{display:flex;align-items:center;gap:8px;min-width:0}
+  .menu{margin-left:0}
   .layout{display:grid;grid-template-columns:300px minmax(0,1fr) 320px;gap:16px;align-items:start}
   .layout>.side,.layout>.center{display:flex;flex-direction:column;gap:12px;min-width:0}
   .layout>.side{position:sticky;top:12px;max-height:calc(100vh - 24px);overflow-y:auto;scrollbar-width:thin}
@@ -308,8 +321,10 @@ tr.gap td{text-align:center;color:var(--faint);padding:2px 0;letter-spacing:.3em
       <h1>써틴 트레이너</h1>
       <span class="sub" id="engineChip">ISMCTS</span>
     </div>
-    <span class="chip" id="modelChip"><span class="dot"></span><span id="modelLabel">기본 탐색 AI</span></span>
-    <button class="chip coin" id="coinChip" hidden></button>
+    <div class="status">
+      <span class="chip" id="modelChip"><span class="dot"></span><span id="modelLabel">기본 탐색 AI</span></span>
+      <button class="chip coin" id="coinChip" hidden></button>
+    </div>
     <div class="menu">
       <button class="btn" id="btnRules">규칙</button>
       <button class="btn" id="btnCoins">코인</button>
