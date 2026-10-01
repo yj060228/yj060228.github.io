@@ -322,6 +322,53 @@ function doMove(s, m) {
   s.turn = nextPlayer(s, p);
 }
 
+/* ───────── 아무도 못 이기는 수 ─────────
+ *
+ * 중요: 판정은 '공개된 정보'만 씁니다. 누구의 손패도 들여다보지 않아요.
+ *
+ * 손패를 보고 판정하면 정보가 새어 나갑니다. 예를 들어 2♦·2♥·2♠ 가 아직
+ * 안 나온 상태에서 2♣ 에 자동 패스가 걸리면, 그걸 본 사람들은 "아무도 2를
+ * 안 들고 있구나" 를 확실히 알게 됩니다. 원래라면 추측만 할 수 있는 정보예요.
+ *
+ * 그래서 '바닥에 깔린 카드' 만 보고 판정합니다. 아직 안 나온 카드는 전부
+ * 누군가 갖고 있을 수 있다고 봐요 (낸 사람 자신의 손패도 포함). 손패를 못 보는
+ * 심판이 똑같이 판정할 수 있고, 참가자 누구나 검산할 수 있습니다.
+ *
+ * 2♠ 는 늘 걸리고, 2♠ 가 이미 나갔으면 2♦ 가, 2♠·2♦ 가 나갔으면 2♥ 가
+ * 그 자리를 넘겨받습니다. 내가 2♠ 를 쥔 채 2♦ 를 내는 경우는 걸리지 않아요 —
+ * 걸리면 내가 2♠ 를 갖고 있다는 게 드러나니까요.
+ *
+ * 남은 장수도 공개 정보라 같이 씁니다. 상대가 모두 3장씩 남았는데 5장짜리를
+ * 냈다면, 아무도 5장을 낼 수 없으니 못 이깁니다. */
+const FULL_MASK = { lo: 0x00ffffff, hi: 0x0fffffff };
+
+function nobodyCanBeat(s, m) {
+  if (!m || m.type === PASS || s.winner >= 0) return false;
+
+  /* 아직 그만큼의 장수를 낼 수 있는 사람이 있는가 (남은 장수는 공개 정보) */
+  let enough = false;
+  for (let p = 0; p < s.n; p++) {
+    if (p !== s.lastPlayer && popc(s.hand[p]) >= m.count) { enough = true; break; }
+  }
+  if (!enough) return true;
+
+  /* 아직 안 나온 카드로 이 수를 이길 수 있는가 */
+  const rest = maskAndNot(FULL_MASK, s.played);
+  for (const x of genAll(rest)) {
+    if (x.count === m.count && x.key > m.key) return false;
+  }
+  return true;
+}
+
+/* 못 이기는 수면 나머지를 전부 패스시키고, 몇 명이 패스했는지 돌려준다 */
+function autoPassRound(s) {
+  if (s.winner >= 0 || s.last.type === PASS) return 0;
+  if (!nobodyCanBeat(s, s.last)) return 0;
+  let n = 0;
+  while (s.winner < 0 && s.last.type !== PASS && n < s.n) { doMove(s, PASS_MOVE); n++; }
+  return n;
+}
+
 /* 벌점: 남은 장수 x 2^(2의 개수) x (10장 이상이면 2) */
 function penalty(h) {
   const c = popc(h);
@@ -674,6 +721,9 @@ const HEAD = { apikey: KEY, Authorization: 'Bearer ' + KEY, 'Content-Type': 'app
 
 const TURN_SECONDS = 90;          /* 이 시간 안에 두지 않으면 자동 패스 */
 const ROOM_HOURS = 12;            /* 이 시간이 지난 방은 정리 */
+const CHAT_MAX = 200;             /* 한 번에 보낼 수 있는 글자 수 */
+const CHAT_KEEP = 50;             /* 방에 남겨 두는 최근 대화 수 */
+const CHAT_GAP = 700;             /* 같은 사람이 다시 보낼 때까지 (ms) */
 
 async function q(path, init) {
   const res = await fetch(DB + path, { ...init, headers: { ...HEAD, ...(init && init.headers) } });
@@ -684,6 +734,7 @@ async function q(path, init) {
 const sel    = (p) => q(p);
 const ins    = (t, body) => q('/' + t, { method: 'POST', body: JSON.stringify(body), headers: { Prefer: 'return=representation' } });
 const upd    = (p, body) => q(p, { method: 'PATCH', body: JSON.stringify(body), headers: { Prefer: 'return=representation' } });
+const del    = (p) => q(p, { method: 'DELETE' });
 const upsert = (t, body) => q('/' + t, { method: 'POST', body: JSON.stringify(body), headers: { Prefer: 'resolution=merge-duplicates,return=representation' } });
 
 const json = (body, status = 200) => new Response(JSON.stringify(body), {
@@ -703,6 +754,8 @@ function makeCode() {
 }
 const nowMs = () => Date.now();
 const cardsOf = (mask) => maskCards(mask);
+const isSeated = (p) => p.seat !== null && p.seat !== undefined;
+const hasStack = (p) => p.stack !== null && p.stack !== undefined;
 
 /* ───────── 누가 보냈는지 서버가 직접 확인 ─────────
  * 브라우저가 보낸 userId 는 믿지 않습니다. 누구든 남의 id 를 적어 보낼 수 있으니까요.
@@ -725,39 +778,68 @@ async function authUser(req) {
   } catch (_) { return null; }
 }
 
-/* 판돈: 100 ~ 10000 코인, 100 단위. 바이인은 100점분. */
-const STAKE_MIN = 100, STAKE_MAX = 10000, STAKE_STEP = 100, BUYIN_POINTS = 100;
-const buyinOf = (stake) => stake * BUYIN_POINTS;
+/* 판돈: 1점당 100 ~ 10000 코인, 100 단위 */
+const STAKE_MIN = 100, STAKE_MAX = 10000, STAKE_STEP = 100;
+/* 바이인: 방장이 정합니다. 안 정하면 1점당 금액의 100배 */
+const BUYIN_POINTS = 100;          /* 기본값 */
+const BUYIN_MIN_POINTS = 10;       /* 최소한 10점은 지을 수 있어야 함 */
+const BUYIN_MAX_POINTS = 500;
+const BUYIN_CAP = 5000000;
+const BUYIN_STEP = 100;
+
+/* 방의 바이인 (옛 방은 buyin 이 0 이라 예전 방식으로) */
+const buyinOf = (room) => {
+  const stake = room.stake || 0;
+  if (!stake) return 0;
+  return room.buyin > 0 ? Number(room.buyin) : stake * BUYIN_POINTS;
+};
+
 function normStake(v) {
   const n = Math.floor(Number(v) || 0);
   if (!n) return 0;
   if (n < STAKE_MIN || n > STAKE_MAX || n % STAKE_STEP !== 0) return -1;
   return n;
 }
-const gameRef = (code, round) => `room:${code}:${round}`;
+
+/* 바이인 검사. 0 이면 기본값(100배)을 쓰겠다는 뜻 */
+function normBuyin(stake, v) {
+  const n = Math.floor(Number(v) || 0);
+  if (!n) return stake * BUYIN_POINTS;
+  if (n % BUYIN_STEP !== 0) return -1;
+  if (n > BUYIN_CAP) return -1;
+  if (n < stake * BUYIN_MIN_POINTS || n > stake * BUYIN_MAX_POINTS) return -1;
+  return n;
+}
+/* 판마다 다른 열쇠. 방 코드가 나중에 다시 쓰여도 겹치지 않게 임의의 글자를 붙인다 */
+const gameRef = (code, round) => `room:${code}:${round}:${crypto.randomUUID().slice(0, 8)}`;
 
 /* 코인 함수는 심판만 부를 수 있습니다 (SQL 에서 권한을 그렇게 걸어 뒀습니다) */
 const rpc = (fn, args) => q('/rpc/' + fn, { method: 'POST', body: JSON.stringify(args || {}) });
 
-/* ───────── 공개 상태 만들기 ───────── */
+/* ───────── 공개 상태 만들기 ─────────
+ * 캐시 방이면 사람마다 '남은 바이인'(stack)을 같이 실어서 모두가 볼 수 있게 합니다.
+ * 판에 앉지 못한 사람(다 잃었거나 나중에 들어온 사람)도 관전자로 목록에 남깁니다. */
 function buildPublic(room, players, st) {
   const g = st && st.game;
-  const seated = players.filter((p) => p.seat !== null && p.seat !== undefined)
-                        .sort((a, b) => a.seat - b.seat);
+  const seated = players.filter(isSeated).sort((a, b) => a.seat - b.seat);
+  const watchers = room.stake ? players.filter((p) => !isSeated(p) && hasStack(p)) : [];
+  const listed = room.status === 'waiting' ? players : seated.concat(watchers);
   return {
     code: room.code,
     status: room.status,
     nPlayers: room.n_players,
     hostPlayer: room.host_player,
     stake: room.stake || 0,
-    buyin: room.stake ? buyinOf(room.stake) : 0,
+    buyin: buyinOf(room),
     round: (st && st.round) || 0,
     cash: (st && st.cash) || null,
-    players: (room.status === 'waiting' ? players : seated).map((p) => ({
+    players: listed.map((p) => ({
       id: p.id, name: p.name, seat: p.seat, present: p.present,
       guest: !p.user_id,
-      cards: g && p.seat !== null && p.seat !== undefined ? popc(g.hand[p.seat]) : 0,
-      passed: g && p.seat !== null && p.seat !== undefined ? !!g.passed[p.seat] : false,
+      cards: g && isSeated(p) ? popc(g.hand[p.seat]) : 0,
+      passed: g && isSeated(p) ? !!g.passed[p.seat] : false,
+      stack: room.stake && hasStack(p) ? p.stack : null,
+      spectator: room.status !== 'waiting' && !isSeated(p),
     })),
     totals: (st && st.totals) || {},
     log: (st && st.log) || [],
@@ -769,6 +851,8 @@ function buildPublic(room, players, st) {
     lastPlayer: g ? g.lastPlayer : null,
     mustInclude: g ? cardsOf(g.mustInclude) : [],
     played: g ? cardsOf(g.played) : [],
+    cleared: (st && st.cleared) || null,
+    chat: (st && st.chat) || [],
     deadline: (st && st.deadline) || 0,
   };
 }
@@ -785,11 +869,20 @@ async function saveRoom(room, players, st, statusOverride) {
   return pub;
 }
 
+/* 캐시 방이면 사람마다 묶여 있는 코인(stack)을 붙여 둔다. 묶인 게 없으면 null */
+async function loadStacks(room, players) {
+  if (!room.stake) return;
+  const rows = await sel(`/cash_seats?room_code=eq.${encodeURIComponent(room.code)}&select=user_id,stack`);
+  const by = new Map(rows.map((r) => [r.user_id, Number(r.stack)]));
+  for (const p of players) p.stack = p.user_id && by.has(p.user_id) ? by.get(p.user_id) : null;
+}
+
 async function loadRoom(code) {
   const rooms = await sel(`/rooms?code=eq.${encodeURIComponent(code)}&select=*`);
   if (!rooms.length) return null;
   const players = await sel(`/room_players?room_code=eq.${encodeURIComponent(code)}&select=*&order=created_at`);
   const games = await sel(`/room_games?room_code=eq.${encodeURIComponent(code)}&select=*`);
+  await loadStacks(rooms[0], players);
   return { room: rooms[0], players, st: games.length ? games[0].secret_state : null };
 }
 
@@ -822,6 +915,27 @@ function applyMove(st, players, move) {
     addLog(st, `— 모두 패스, ${seatName(players, g.turn)} 선 —`);
   }
   st.deadline = nowMs() + TURN_SECONDS * 1000;
+
+  /* 남은 사람이 아무도 못 이기는 수면, 패스를 기다리지 않고 바로 넘긴다.
+   * 어차피 모두 패스밖에 할 수 없어서 게임 내용은 달라지지 않습니다. */
+  if (move.type !== PASS) {
+    st.cleared = null;
+    if (nobodyCanBeat(g, g.last)) {
+      const cards = cardsOf(g.last);
+      const info = { cards, type: g.last.type, seat, name: who };
+      addLog(st, '— 아무도 못 이기는 수 —');
+      while (g.winner < 0 && g.last.type !== PASS) {
+        addLog(st, `${seatName(players, g.turn)} 패스`);
+        st.moves.push({ s: g.turn, c: [] });
+        doMove(g, PASS_MOVE);
+      }
+      if (g.winner < 0) {
+        st.cleared = info;
+        addLog(st, `— ${seatName(players, g.turn)} 선 —`);
+      }
+      st.deadline = nowMs() + TURN_SECONDS * 1000;
+    }
+  }
 }
 
 /* 자리를 비운 사람이나 시간이 지난 사람의 차례를 대신 처리 */
@@ -870,71 +984,96 @@ async function saveLog(info) {
   } catch (_) { return null; }   /* 기록 실패가 게임을 막지는 않게 */
 }
 
-/* ───────── 캐시 게임 ─────────
+/* ───────── 캐시 게임 (세션 바이인) ─────────
  * 코인은 여기서만 움직입니다. 금액은 서버가 들고 있는 카드와 승점으로만 정해지고,
- * 브라우저가 보낸 숫자는 하나도 쓰지 않습니다. */
+ * 브라우저가 보낸 숫자는 하나도 쓰지 않습니다.
+ *
+ *  · 방에 들어오면 바이인을 한 번 묶는다            (seat_buyin)
+ *  · 판이 끝날 때마다 묶인 코인 안에서 주고받는다    (seat_settle)
+ *    바이인보다 적게 남아도 계속 할 수 있고, 한 판에 잃는 금액은 남은 만큼까지다.
+ *  · 다 잃으면 자리에서 빠지고 관전만 한다
+ *  · 방을 나가면 남은 만큼 돌려받는다               (seat_cashout)
+ *    판 도중에 나가면 그 판이 끝난 뒤에 돌려받는다. */
 
-/* 판을 시작하기 전에 참가자마다 바이인을 묶어 둔다.
-   한 사람이라도 코인이 모자라면 판이 시작되지 않는다. */
-async function cashLock(room, players, round) {
-  if (!room.stake) return null;
-  const seated = players
-    .filter((p) => p.seat !== null && p.seat !== undefined)
-    .sort((a, b) => a.seat - b.seat);
-  if (seated.some((p) => !p.user_id)) {
-    throw new Error('캐시 게임은 로그인한 사람만 할 수 있어요.');
-  }
-  const ids = seated.map((p) => p.user_id);
-  if (new Set(ids).size !== ids.length) throw new Error('같은 계정이 두 자리에 앉아 있어요.');
+const coinMsg = (e) => {
+  const m = String((e && e.message) || e);
+  return m.includes('코인이 모자라') ? null : m.slice(0, 120);
+};
 
-  const ref = gameRef(room.code, round);
-  const buyin = buyinOf(room.stake);
-  try {
-    await rpc('cash_start', {
-      p_ref: ref, p_room: room.code, p_users: ids, p_buyin: buyin, p_stake: room.stake,
-    });
-  } catch (e) {
-    const m = String((e && e.message) || e);
-    if (m.includes('코인이 모자란')) {
-      throw new Error(`코인이 모자란 사람이 있어요. 캐시 게임을 하려면 ${buyin.toLocaleString()}코인이 필요해요.`);
-    }
-    throw new Error('판돈을 묶지 못했어요: ' + m.slice(0, 120));
-  }
-  return { ref, buyin, stake: room.stake, seats: ids };
+/* 바이인 묶기. 이미 이 방에 묶어 둔 게 있으면 그대로 둔다. 남은 금액을 돌려준다 */
+async function seatBuyin(room, userId) {
+  return Number(await rpc('seat_buyin', { p_room: room.code, p_user: userId, p_buyin: buyinOf(room) }));
 }
 
-/* 판이 끝나면 벌점 1점당 판돈만큼 주고받는다 */
-async function cashSettle(st, players, pts) {
+/* 남은 금액 돌려주기. 돌려준 금액을 돌려준다 */
+async function seatCashout(room, userId) {
+  return Number(await rpc('seat_cashout', { p_room: room.code, p_user: userId }));
+}
+
+/* 방에 있지만 아직 바이인을 묶지 않은 사람은 판을 시작할 때 묶는다.
+ * (이 기능을 넣기 전에 만든 방이나, 나갔다가 다시 온 사람) 코인이 모자라면 관전으로 남는다. */
+async function ensureBuyins(room, st, players) {
+  if (!room.stake) return;
+  for (const p of players) {
+    if (!p.present || !p.user_id || hasStack(p)) continue;
+    try { p.stack = await seatBuyin(room, p.user_id); }
+    catch (_) { addLog(st, `— ${p.name} 코인이 모자라 관전합니다 —`); }
+  }
+}
+
+/* 남은 바이인이 있는 사람만 판에 앉는다 */
+const canPlay = (room, p) => p.present && (!room.stake || (p.user_id && p.stack > 0));
+
+/* 판이 끝나면 벌점 1점당 판돈만큼, 묶인 코인 안에서 주고받는다 */
+async function settleRound(room, st, pts) {
+  const r = st.cashRound;
+  if (!r) return null;
+  try {
+    const rows = await rpc('seat_settle', {
+      p_ref: r.ref, p_room: room.code,
+      p_users: r.seats.map((x) => x.user_id),
+      p_points: r.seats.map((x) => pts[x.seat]),
+      p_stake: r.stake,
+    });
+    const by = new Map((rows || []).map((x) => [x.user_id, x]));
+    return {
+      stake: r.stake,
+      rows: r.seats.map((x) => {
+        const z = by.get(x.user_id) || {};
+        return {
+          seat: x.seat, name: x.name, points: pts[x.seat],
+          delta: Number(z.delta || 0), stack: Number(z.stack || 0),
+        };
+      }),
+    };
+  } catch (e) {
+    return { failed: true, stake: r.stake, msg: String((e && e.message) || e).slice(0, 120) };
+  }
+}
+
+/* 이 기능을 넣기 전에 시작한 판(판마다 묶던 방식)이 남아 있으면 예전 방식으로 정산한다 */
+async function legacySettle(st, players, pts) {
   const c = st.cashLock;
   if (!c) return null;
-  const seated = players
-    .filter((p) => p.seat !== null && p.seat !== undefined)
-    .sort((a, b) => a.seat - b.seat);
+  const seated = players.filter(isSeated).sort((a, b) => a.seat - b.seat);
   const ids = seated.map((p) => p.user_id);
-  const points = seated.map((p) => pts[p.seat]);
-  /* 묶을 때와 정산할 때의 사람이 같아야 한다 (SQL 에서도 한 번 더 확인한다) */
   const same = ids.length === c.seats.length && ids.every((x, i) => x === c.seats[i]);
   try {
-    if (!same) { await rpc('cash_refund', { p_ref: c.ref }); return { refunded: true, stake: c.stake }; }
-    await rpc('cash_settle', { p_ref: c.ref, p_users: ids, p_points: points });
+    if (!same) { await rpc('cash_refund', { p_ref: c.ref }); return; }
+    await rpc('cash_settle', { p_ref: c.ref, p_users: ids, p_points: seated.map((p) => pts[p.seat]) });
   } catch (_) {
     try { await rpc('cash_refund', { p_ref: c.ref }); } catch (__) {}
-    return { refunded: true, stake: c.stake };
   }
-  return {
-    stake: c.stake, buyin: c.buyin,
-    rows: seated.map((p) => ({ seat: p.seat, name: p.name, points: pts[p.seat] })),
-  };
 }
 
 /* ───────── 판 종료 ───────── */
-async function finishGame(st, players) {
+async function finishGame(room, st, players) {
   const g = st.game;
   const pts = finalPoints(g);
   st.totals = st.totals || {};
   const names = [];
   for (const p of players) {
-    if (p.seat === null || p.seat === undefined) continue;
+    if (!isSeated(p)) continue;
     const v = pts[p.seat];
     st.totals[p.id] = (st.totals[p.id] || 0) + v;
     names.push(`${p.name} ${v > 0 ? '+' : ''}${v}`);
@@ -942,32 +1081,49 @@ async function finishGame(st, players) {
   addLog(st, `${seatName(players, g.winner)} 승리 — ${names.join(' / ')}`);
 
   /* 캐시 게임이면 코인 정산 */
-  const cash = await cashSettle(st, players, pts);
+  await legacySettle(st, players, pts);
   st.cashLock = null;
+  const cash = await settleRound(room, st, pts);
+  st.cashRound = null;
   st.cash = null;
   if (cash) {
-    if (cash.refunded) {
-      addLog(st, '— 자리가 바뀌어 판돈을 그대로 돌려줬어요 —');
+    if (cash.failed) {
+      addLog(st, '— 정산하지 못해서 이번 판은 코인이 오가지 않았어요 —');
     } else {
       st.cash = cash;
       addLog(st, '— 정산 · ' + cash.rows
-        .map((r) => `${r.name} ${r.points > 0 ? '+' : ''}${(r.points * cash.stake).toLocaleString()}`)
+        .map((r) => `${r.name} ${r.delta > 0 ? '+' : ''}${r.delta.toLocaleString()}`)
         .join(' / ') + ' 코인 —');
+      for (const r of cash.rows) {
+        if (r.stack === 0) addLog(st, `— ${r.name} 올인! 이제 관전합니다 —`);
+      }
     }
   }
 
+  /* 판 도중에 나간 사람은 이제 남은 코인을 돌려받는다 */
+  if (room.stake) {
+    for (const p of players) {
+      if (p.present || !p.user_id || !hasStack(p)) continue;
+      try {
+        const back = await seatCashout(room, p.user_id);
+        addLog(st, `— ${p.name} 나감 · ${back.toLocaleString()}코인 돌려받음 —`);
+      } catch (_) { /* 못 돌려준 건 cleanup_seats 가 나중에 돌려준다 */ }
+    }
+    await loadStacks(room, players);
+  }
+
   await saveLog({
-    source: 'mp', roomCode: g.n && players[0] ? players[0].room_code : null,
+    source: 'mp', roomCode: room.code,
     nPlayers: g.n, winnerSeat: g.winner,
     seats: players
-      .filter((p) => p.seat !== null && p.seat !== undefined)
+      .filter(isSeated)
       .map((p) => ({ seat: p.seat, name: p.name, user_id: p.no_log ? null : (p.user_id || null), guest: !p.user_id, ai: false })),
     deal: st.deal || [], moves: st.moves || [], points: pts,
   });
 
   /* 로그인한 사람은 멀티플레이 전적에 반영 */
   for (const p of players) {
-    if (!p.user_id || p.seat === null || p.seat === undefined) continue;
+    if (!p.user_id || !isSeated(p)) continue;
     try {
       const rows = await sel(`/profiles?id=eq.${p.user_id}&select=mp_total,mp_games,mp_wins`);
       if (!rows.length) continue;
@@ -988,18 +1144,40 @@ function startRound(st, players, nPlayers) {
   st.game = g;
   st.deal = g.hand.slice(0, nPlayers).map(cardsOf);
   st.moves = [];
+  st.cleared = null;
   st.round = (st.round || 0) + 1;
   st.deadline = nowMs() + TURN_SECONDS * 1000;
   addLog(st, `— ${st.round}번째 판 시작 · ${seatName(players, g.turn)} 선 —`);
 }
 
-/* 캐시 게임이면 판돈을 먼저 묶고 나서 카드를 돌린다 */
-async function beginRound(room, st, players, n) {
-  st.cashLock = await cashLock(room, players, (st.round || 0) + 1);
+/* 캐시 게임이면 이번 판에 누가 앉았는지 적어 두고 카드를 돌린다 */
+function beginRound(room, st, players, n) {
+  st.cashLock = null;
   st.cash = null;
   startRound(st, players, n);
-  if (st.cashLock) {
-    addLog(st, `— 캐시 게임 · 1점당 ${room.stake.toLocaleString()}코인 (바이인 ${st.cashLock.buyin.toLocaleString()}) —`);
+  st.cashRound = null;
+  if (room.stake) {
+    const seated = players.filter(isSeated).sort((a, b) => a.seat - b.seat);
+    st.cashRound = {
+      ref: gameRef(room.code, st.round), stake: room.stake,
+      seats: seated.map((p) => ({ seat: p.seat, user_id: p.user_id, name: p.name })),
+    };
+    addLog(st, `— 캐시 게임 · 1점당 ${room.stake.toLocaleString()}코인 · 남은 바이인 `
+      + seated.map((p) => `${p.name} ${Number(p.stack).toLocaleString()}`).join(' / ') + ' —');
+  }
+}
+
+/* 자리를 다시 정한다. order 에 있는 사람이 0번부터 앉고, 나머지는 자리에서 빠진다 */
+async function assignSeats(room, players, order) {
+  for (const p of players) {
+    const i = order.indexOf(p);
+    const seat = i >= 0 ? i : null;
+    if (p.seat !== seat) await upd(`/room_players?id=eq.${p.id}`, { seat });
+    p.seat = seat;
+  }
+  if (room.n_players !== order.length) {
+    await upd(`/rooms?code=eq.${room.code}`, { n_players: order.length });
+    room.n_players = order.length;
   }
 }
 
@@ -1068,16 +1246,24 @@ async function handle(body, uid) {
 
     /* 캐시 게임이면 로그인과 코인이 필요하다 */
     const stake = normStake(body.stake);
-    if (stake < 0) return fail('판돈은 100 ~ 10000 코인 사이에서 100 단위로 골라 주세요.');
+    if (stake < 0) return fail('판돈은 1점당 100 ~ 10000 코인 사이에서 100 단위로 골라 주세요.');
+    let buyin = 0;
     if (stake) {
+      buyin = normBuyin(stake, body.buyin);
+      if (buyin < 0) {
+        return fail(`바이인은 ${(stake * BUYIN_MIN_POINTS).toLocaleString()} ~ `
+          + `${Math.min(stake * BUYIN_MAX_POINTS, BUYIN_CAP).toLocaleString()}코인 사이에서 `
+          + `100 단위로 골라 주세요. (1점당 ${stake.toLocaleString()}코인 기준)`);
+      }
       if (!uid) return fail('캐시 게임은 로그인해야 만들 수 있어요.', 401);
-      if (!(await hasCoins(uid, buyinOf(stake)))) {
-        return fail(`코인이 모자라요. 1점당 ${stake.toLocaleString()}코인 방은 ${buyinOf(stake).toLocaleString()}코인이 있어야 해요.`);
+      if (!(await hasCoins(uid, buyin))) {
+        return fail(`코인이 모자라요. 이 방은 바이인 ${buyin.toLocaleString()}코인이 있어야 만들 수 있어요.`);
       }
     }
 
     await q('/rpc/cleanup_old_rooms', { method: 'POST', body: '{}' }).catch(() => {});
     await q('/rpc/cleanup_cash', { method: 'POST', body: '{}' }).catch(() => {});
+    await q('/rpc/cleanup_seats', { method: 'POST', body: '{}' }).catch(() => {});
 
     let code = null;
     for (let i = 0; i < 6 && !code; i++) {
@@ -1089,11 +1275,28 @@ async function handle(body, uid) {
 
     const token = crypto.randomUUID();
     const playerId = crypto.randomUUID();
-    await ins('rooms', { code, host_player: playerId, n_players: n, status: 'waiting', stake, public_state: {} });
+    await ins('rooms', {
+      code, host_player: playerId, n_players: n, status: 'waiting',
+      stake, buyin, public_state: {},
+    });
     await ins('room_players', {
       id: playerId, room_code: code, token, user_id: uid, name, present: true,
       no_log: !!body.noLog,
     });
+
+    /* 방장도 들어오는 순간 바이인을 묶는다 */
+    if (stake) {
+      try {
+        await seatBuyin({ code, stake, buyin }, uid);
+      } catch (e) {
+        await del(`/room_players?id=eq.${playerId}`).catch(() => {});
+        await del(`/rooms?code=eq.${code}`).catch(() => {});
+        const m = coinMsg(e);
+        return fail(m ? '바이인을 묶지 못했어요: ' + m
+                      : `코인이 모자라요. 이 방은 바이인 ${buyin.toLocaleString()}코인이 있어야 만들 수 있어요.`);
+      }
+    }
+
     const { room, players } = await loadRoom(code);
     const pub = await saveRoom(room, players, null);
     return json({ code, token, playerId, state: pub });
@@ -1106,20 +1309,25 @@ async function handle(body, uid) {
     const found = await loadRoom(code);
     if (!found) return fail('그런 방이 없어요. 코드를 다시 확인해 주세요.', 404);
     const { room, players, st } = found;
+    const buyin = buyinOf(room);
+    const short = `코인이 모자라요. 이 방은 바이인 ${buyin.toLocaleString()}코인이 있어야 들어올 수 있어요.`;
 
     /* 캐시 방은 로그인과 바이인이 필요하다 */
     if (room.stake) {
       if (!uid) return fail('이 방은 캐시 게임이라 로그인해야 들어올 수 있어요.', 401);
-      if (!players.some((p) => p.user_id === uid)
-          && !(await hasCoins(uid, buyinOf(room.stake)))) {
-        return fail(`코인이 모자라요. 이 방은 ${buyinOf(room.stake).toLocaleString()}코인이 있어야 들어올 수 있어요.`);
-      }
+      const mine = players.find((p) => p.user_id === uid);
+      if (!(mine && hasStack(mine)) && !(await hasCoins(uid, buyin))) return fail(short);
     }
 
-    /* 같은 계정으로 다시 들어오면 원래 자리로 복귀 */
+    /* 같은 계정으로 다시 들어오면 원래 자리로 복귀.
+     * 캐시 방에서 이미 나가서 코인을 돌려받았다면 바이인을 새로 묶는다 */
     if (uid) {
       const mine = players.find((p) => p.user_id === uid);
       if (mine) {
+        if (room.stake && !hasStack(mine)) {
+          try { await seatBuyin(room, uid); }
+          catch (e) { const m = coinMsg(e); return fail(m ? '바이인을 묶지 못했어요: ' + m : short); }
+        }
         await upd(`/room_players?id=eq.${mine.id}`, { present: true, name });
         const again = await loadRoom(code);
         const pub = await saveRoom(again.room, again.players, again.st);
@@ -1135,6 +1343,15 @@ async function handle(body, uid) {
       id: playerId, room_code: code, token, user_id: uid, name, present: true,
       no_log: !!body.noLog,
     });
+    if (room.stake) {
+      try {
+        await seatBuyin(room, uid);
+      } catch (e) {
+        await del(`/room_players?id=eq.${playerId}`).catch(() => {});
+        const m = coinMsg(e);
+        return fail(m ? '바이인을 묶지 못했어요: ' + m : short);
+      }
+    }
     const again = await loadRoom(code);
     const pub = await saveRoom(again.room, again.players, st);
     return json({ code, token, playerId, state: pub });
@@ -1150,11 +1367,31 @@ async function handle(body, uid) {
   if (!found) return fail('방이 사라졌어요.', 404);
   let { room, players, st } = found;
 
+  /* 이 자리가 어떤 계정의 자리라면, 그 계정으로 로그인한 사람만 쓸 수 있습니다.
+   * 참가 토큰이 브라우저에 남아 있어도 다른 계정이 이어받을 수 없게 막아요.
+   * (게스트 자리는 user_id 가 없으니 예전처럼 토큰만으로 씁니다.) */
+  if (me.user_id) {
+    if (room.stake && uid !== me.user_id) {
+      return fail('이 자리는 다른 계정의 자리예요. 그 계정으로 로그인해 주세요.', 403);
+    }
+    if (uid && uid !== me.user_id) {
+      return fail('지금 로그인한 계정의 자리가 아니에요.', 403);
+    }
+  }
+
   if (action === 'start') {
     if (room.host_player !== me.id) return fail('방장만 시작할 수 있어요.');
     if (room.status === 'playing') return fail('이미 진행 중이에요.');
-    const joined = players.filter((p) => p.present);
-    if (joined.length < 2) return fail('두 명 이상 있어야 시작할 수 있어요.');
+    st = {
+      totals: (st && st.totals) || {}, log: [], round: (st && st.round) || 0,
+      chat: (st && st.chat) || [],          /* 대기실에서 나눈 대화는 남긴다 */
+    };
+    await ensureBuyins(room, st, players);
+    const joined = players.filter((p) => canPlay(room, p));
+    if (joined.length < 2) {
+      return fail(room.stake ? '바이인을 묶은 사람이 두 명 이상 있어야 시작할 수 있어요.'
+                             : '두 명 이상 있어야 시작할 수 있어요.');
+    }
 
     /* 자리 배정 */
     const order = joined.slice();
@@ -1162,40 +1399,65 @@ async function handle(body, uid) {
       const j = Math.floor(Math.random() * (i + 1));
       [order[i], order[j]] = [order[j], order[i]];
     }
-    for (let i = 0; i < order.length; i++) await upd(`/room_players?id=eq.${order[i].id}`, { seat: i });
-    for (const p of players) if (!p.present) await upd(`/room_players?id=eq.${p.id}`, { seat: null });
-
-    players = (await loadRoom(room.code)).players;
-    st = { totals: (st && st.totals) || {}, log: [], round: (st && st.round) || 0 };
-    try {
-      await beginRound(room, st, players, order.length);
-    } catch (e) {
-      /* 판돈을 못 묶으면 카드를 돌리지 않는다 */
-      for (const p of players) await upd(`/room_players?id=eq.${p.id}`, { seat: null });
-      return fail((e && e.message) || '판을 시작하지 못했어요.');
-    }
-    await upd(`/rooms?code=eq.${room.code}`, { n_players: order.length });
-    room.n_players = order.length;
+    await assignSeats(room, players, order);
+    beginRound(room, st, players, order.length);
     const mine = players.find((p) => p.id === me.id);
     const pub = await saveRoom(room, players, st, 'playing');
     return json({
       state: pub, seat: mine ? mine.seat : null,
-      hand: mine && mine.seat !== null && mine.seat !== undefined ? cardsOf(st.game.hand[mine.seat]) : [],
+      hand: mine && isSeated(mine) ? cardsOf(st.game.hand[mine.seat]) : [],
     });
   }
 
   if (action === 'again') {
     if (room.host_player !== me.id) return fail('방장만 새 판을 시작할 수 있어요.');
     if (!st || !st.game || st.game.winner < 0) return fail('아직 판이 끝나지 않았어요.');
-    const seated = players.filter((p) => p.seat !== null && p.seat !== undefined && p.present);
-    if (seated.length < 2) return fail('두 명 이상 있어야 해요.');
     st.log = [];
-    try {
-      await beginRound(room, st, players, room.n_players);
-    } catch (e) {
-      return fail((e && e.message) || '새 판을 시작하지 못했어요.');
+    if (room.stake) {
+      /* 남은 바이인이 있는 사람만 다시 앉는다. 다 잃은 사람은 관전.
+         앉는 순서는 지난 판 자리 순서를 그대로 따른다 */
+      await ensureBuyins(room, st, players);
+      const order = players.filter((p) => canPlay(room, p))
+        .sort((a, b) => (isSeated(a) ? a.seat : 99) - (isSeated(b) ? b.seat : 99));
+      if (order.length < 2) {
+        return fail('바이인이 남은 사람이 두 명 이상 있어야 새 판을 시작할 수 있어요.');
+      }
+      await assignSeats(room, players, order);
+    } else {
+      const seated = players.filter((p) => isSeated(p) && p.present);
+      if (seated.length < 2) return fail('두 명 이상 있어야 해요.');
     }
+    beginRound(room, st, players, room.n_players);
     const pub = await saveRoom(room, players, st, 'playing');
+    return json({ state: pub });
+  }
+
+  /* ───────── 채팅 ─────────
+   * 같은 방 사람들끼리만 보이고, 최근 CHAT_KEEP 개만 남습니다.
+   * 글자 수와 도배는 서버에서 막습니다. 그려 줄 때는 화면에서 escape 합니다. */
+  if (action === 'chat') {
+    const text = String(body.text || '')
+      .replace(/[\u0000-\u001f\u007f]/g, ' ')   /* 제어문자 제거 */
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, CHAT_MAX);
+    if (!text) return fail('보낼 말을 적어 주세요.');
+
+    if (!st) st = { totals: {}, log: [], round: 0 };
+    st.chat = Array.isArray(st.chat) ? st.chat : [];
+
+    const now = nowMs();
+    const mine = st.chat.filter((c) => c.id === me.id);
+    const last = mine.length ? mine[mine.length - 1].t : 0;
+    if (now - last < CHAT_GAP) return fail('조금 천천히 보내 주세요.');
+
+    st.chat = st.chat.concat([{
+      id: me.id, name: me.name,
+      seat: isSeated(me) ? me.seat : null,
+      text, t: now,
+    }]).slice(-CHAT_KEEP);
+
+    const pub = await saveRoom(room, players, st);
     return json({ state: pub });
   }
 
@@ -1203,16 +1465,37 @@ async function handle(body, uid) {
     await upd(`/room_players?id=eq.${me.id}`, { present: false });
     const again = await loadRoom(room.code);
     let status = again.room.status;
-    if (again.st && again.st.game && again.st.game.winner < 0) {
+    const live = !!(again.st && again.st.game && again.st.game.winner < 0);
+    const meNow = again.players.find((p) => p.id === me.id) || me;
+    if (live) {
       autoAdvance(again.st, again.players);
-      if (again.st.game.winner >= 0) { await finishGame(again.st, again.players); status = 'ended'; }
+      if (again.st.game.winner >= 0) { await finishGame(again.room, again.st, again.players); status = 'ended'; }
+    }
+
+    /* 캐시 방: 지금 판에 앉아 있지 않으면 바로 돌려받고,
+       판 도중이면 그 판이 끝날 때(finishGame) 돌려받는다 */
+    let cashout = null;
+    if (room.stake && me.user_id) {
+      const stillPlaying = again.st && again.st.game && again.st.game.winner < 0 && isSeated(meNow);
+      if (!stillPlaying && hasStack(meNow)) {
+        cashout = await seatCashout(again.room, me.user_id);
+        if (!again.st) again.st = { totals: {}, log: [], round: 0 };
+        addLog(again.st, `— ${me.name} 나감 · ${cashout.toLocaleString()}코인 돌려받음 —`);
+        meNow.stack = null;
+      } else if (stillPlaying) {
+        addLog(again.st, `— ${me.name} 나감 · 이번 판이 끝나면 남은 코인을 돌려받아요 —`);
+      }
     }
     const pub = await saveRoom(again.room, again.players, again.st, status);
-    return json({ state: pub });
+    return json({ state: pub, cashout });
   }
 
   if (action === 'view' || action === 'play' || action === 'pass') {
-    if (!me.present) await upd(`/room_players?id=eq.${me.id}`, { present: true });
+    if (!me.present) {
+      await upd(`/room_players?id=eq.${me.id}`, { present: true });
+      const p = players.find((x) => x.id === me.id);
+      if (p) p.present = true;
+    }
 
     if (!st || !st.game) {
       const pub = buildPublic(room, players, st);
@@ -1232,7 +1515,7 @@ async function handle(body, uid) {
       return fail('이미 끝난 판이에요.');
     }
     if (g.winner < 0 && (action === 'play' || action === 'pass')) {
-      if (me.seat === null || me.seat === undefined) return fail('이번 판에는 참여하지 않았어요.');
+      if (!isSeated(me)) return fail('이번 판에는 참여하지 않았어요.');
       if (g.turn !== me.seat) return fail('아직 내 차례가 아니에요.');
 
       const ms = legalMoves(g);
@@ -1249,13 +1532,13 @@ async function handle(body, uid) {
     }
 
     if (g.winner >= 0 && room.status === 'playing') {
-      await finishGame(st, players);
+      await finishGame(room, st, players);
       const pub = await saveRoom(room, players, st, 'ended');
-      return json({ state: pub, hand: me.seat !== null ? cardsOf(g.hand[me.seat]) : [], seat: me.seat });
+      return json({ state: pub, hand: isSeated(me) ? cardsOf(g.hand[me.seat]) : [], seat: me.seat });
     }
     const pub = changed ? await saveRoom(room, players, st)
                         : buildPublic(room, players, st);
-    return json({ state: pub, hand: me.seat !== null && me.seat !== undefined ? cardsOf(g.hand[me.seat]) : [], seat: me.seat });
+    return json({ state: pub, hand: isSeated(me) ? cardsOf(g.hand[me.seat]) : [], seat: me.seat });
   }
 
   return fail('알 수 없는 요청이에요.');
