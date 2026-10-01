@@ -855,6 +855,7 @@ function buildPublic(room, players, st) {
     chat: (st && st.chat) || [],
     deadline: (st && st.deadline) || 0,
     stopped: !!(st && st.stopped),
+    leadMode: normLead(st && st.leadMode),
   };
 }
 
@@ -1080,6 +1081,8 @@ async function finishGame(room, st, players) {
     names.push(`${p.name} ${v > 0 ? '+' : ''}${v}`);
   }
   addLog(st, `${seatName(players, g.winner)} 승리 — ${names.join(' / ')}`);
+  const winner = players.find((p) => p.seat === g.winner);
+  st.lastWinnerId = winner ? winner.id : null;   /* '전 판 승자가 선' 규칙에 쓴다 */
 
   /* 캐시 게임이면 코인 정산 */
   await legacySettle(st, players, pts);
@@ -1139,16 +1142,32 @@ async function finishGame(room, st, players) {
 }
 
 /* ───────── 새 판 시작 ───────── */
+/* 선 정하기
+ *   lowest : 매 판 가장 낮은 카드(보통 3♣)를 가진 사람이 그 카드를 넣어서 첫 수를 낸다
+ *   winner : 첫 판만 그렇게 하고, 다음 판부터는 전 판 승자가 아무 패나 내며 시작한다 */
+const normLead = (v) => (v === 'winner' ? 'winner' : 'lowest');
+
 function startRound(st, players, nPlayers) {
   seedRng(randomSeed());
   const g = initState(nPlayers);
+  let why = '';
+  if (normLead(st.leadMode) === 'winner' && (st.round || 0) > 0) {
+    const w = st.lastWinnerId && players.find((p) => p.id === st.lastWinnerId && isSeated(p));
+    if (w && w.seat < nPlayers) {
+      g.turn = g.lastPlayer = w.seat;
+      g.mustInclude = emptyMask();          /* 승자는 아무 패나 낼 수 있다 */
+      why = ' (전 판 승자)';
+    } else {
+      why = ' (전 판 승자가 없어 가장 낮은 카드)';
+    }
+  }
   st.game = g;
   st.deal = g.hand.slice(0, nPlayers).map(cardsOf);
   st.moves = [];
   st.cleared = null;
   st.round = (st.round || 0) + 1;
   st.deadline = nowMs() + TURN_SECONDS * 1000;
-  addLog(st, `— ${st.round}번째 판 시작 · ${seatName(players, g.turn)} 선 —`);
+  addLog(st, `— ${st.round}번째 판 시작 · ${seatName(players, g.turn)} 선${why} —`);
 }
 
 /* 캐시 게임이면 이번 판에 누가 앉았는지 적어 두고 카드를 돌린다 */
@@ -1399,7 +1418,7 @@ async function handle(body, uid) {
     }
 
     const { room, players } = await loadRoom(code);
-    const pub = await saveRoom(room, players, null);
+    const pub = await saveRoom(room, players, { totals: {}, log: [], round: 0, leadMode: normLead(body.leadMode) });
     return json({ code, token, playerId, state: pub });
   }
 
@@ -1491,6 +1510,8 @@ async function handle(body, uid) {
     st = {
       totals: (st && st.totals) || {}, log: [], round: (st && st.round) || 0,
       chat: (st && st.chat) || [],          /* 대기실에서 나눈 대화는 남긴다 */
+      leadMode: normLead(st && st.leadMode),
+      lastWinnerId: (st && st.lastWinnerId) || null,
     };
     await ensureBuyins(room, st, players);
     const joined = players.filter((p) => canPlay(room, p));

@@ -8,6 +8,7 @@ const MP = {
   cash: false, stake: 100, buyinPts: 100,   /* 캐시 게임 설정 (바이인은 몇 점분인지로) */
   chatDraft: '', chatSeen: '',              /* 채팅 입력칸과 마지막으로 그린 목록의 표시 (방 코드·개수·마지막 시각) */
   owner: null, saved: null,         /* 이 자리가 어느 계정 것인지 */
+  leadMode: 'lowest',               /* 선 정하기: lowest(매 판 가장 낮은 카드) | winner(이후 판은 전 판 승자) */
 };
 const MPCFG = window.THIRTEEN_CONFIG || {};
 const FN_URL = MPCFG.SUPABASE_URL ? MPCFG.SUPABASE_URL + '/functions/v1/thirteen' : '';
@@ -175,8 +176,14 @@ function mpRenderLobby() {
     <div class="acct">
       <label class="note" for="mpN">인원</label>
       <select id="mpN"><option value="2">2인</option><option value="3">3인</option><option value="4" selected>4인</option></select>
+      <label class="note" for="mpLead">선</label>
+      <select id="mpLead">
+        <option value="lowest"${MP.leadMode === 'winner' ? '' : ' selected'}>매 판 가장 낮은 카드</option>
+        <option value="winner"${MP.leadMode === 'winner' ? ' selected' : ''}>첫 판만, 이후 전 판 승자</option>
+      </select>
       <button class="btn primary" id="mpCreate">방 만들기</button>
     </div>
+    <p class="note">${LEAD_NOTE[MP.leadMode] || LEAD_NOTE.lowest}</p>
     <div class="cashbox">
       <label class="switch">
         <input type="checkbox" id="mpCash" ${MP.cash ? 'checked' : ''} ${canCash() ? '' : 'disabled'}>
@@ -216,6 +223,7 @@ function mpRenderLobby() {
     MP.buyinPts = Math.round(+e.target.value / MP.stake);
   };
 
+  $('mpLead').onchange = (e) => { MP.leadMode = e.target.value; mpRenderLobby(); };
   $('mpCreate').onclick = () => {
     const name = ($('mpName').value || '').trim();
     const n = +$('mpN').value;
@@ -224,7 +232,7 @@ function mpRenderLobby() {
       if (!name) throw new Error('닉네임을 입력해 주세요.');
       const cash = MP.cash && canCash();
       mpEnter(await mpCall('create', {
-        name, nPlayers: n, noLog: mpNoLog(),
+        name, nPlayers: n, noLog: mpNoLog(), leadMode: MP.leadMode,
         stake: cash ? MP.stake : 0,
         buyin: cash ? mpBuyin() : 0,
       }));
@@ -255,6 +263,12 @@ const mpBuyin = () => {
   return list.includes(want) ? want : (list[list.length - 1] || MP.stake * 100);
 };
 const canCash = () => !!(ACC.sb && ACC.user);
+/* 선 정하기 설명 */
+const LEAD_NOTE = {
+  lowest: '선: 매 판 가장 낮은 카드(보통 3♣)를 가진 사람이 그 카드를 넣어서 첫 수를 내요.',
+  winner: '선: 첫 판만 가장 낮은 카드를 가진 사람이 내고, 다음 판부터는 전 판 승자가 아무 패나 내며 시작해요.',
+};
+const LEAD_CHIP = { lowest: '선 · 가장 낮은 카드', winner: '선 · 전 판 승자' };
 /* 정산 금액. 서버가 실제로 오간 금액(delta)을 보내 주고, 옛 기록이면 점수로 계산한다 */
 const mpDelta = (r, stake) => (typeof r.delta === 'number' ? r.delta : r.points * stake);
 /* 내 기록 화면에서 저장을 끄면 이 방의 내 기록도 남기지 않는다 */
@@ -270,6 +284,7 @@ function mpRenderRoom() {
     <div class="roomline">
       <span class="code">${esc(st.code)}</span>
       ${st.stake ? `<span class="chip cash">◈ 1점당 ${st.stake.toLocaleString()}</span>` : ''}
+      <span class="chip" title="${esc(LEAD_NOTE[st.leadMode] || LEAD_NOTE.lowest)}">${LEAD_CHIP[st.leadMode] || LEAD_CHIP.lowest}</span>
       <button class="btn" id="mpCopy">링크 복사</button>
       <button class="btn" id="mpLeave" style="margin-left:auto">방 나가기</button>
     </div>
