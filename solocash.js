@@ -5,15 +5,23 @@
  *
  *   · 시작하면 내 코인 전부가 묶여서, 그동안 멀티 게임 · 송금 · 다른 게임을 할 수 없어요.
  *   · 판이 끝나면 내 승점 x 1점당 금액만큼 관리자와 주고받아요.
- *   · 기권: 그때 내 패의 벌점 x 4 x 1점당 금액을 벌금으로 내고 끝내요. 기권한 판은 기록에 남지 않아요. */
+ *   · 기권: 그때 내 패의 벌점 x 4 x 1점당 금액을 벌금으로 내고 끝내요. 기권한 판은 기록에 남지 않아요.
+ *   · 관리자가 끄면 모두의 화면에서 사라져요. 각자 설정에서 메인 화면에 보일지도 고를 수 있어요.
+ *   · 코인이 없으면 할 수 없어요. */
 
 const CASH_MIN_POINTS = 10;      /* 시작하려면 1점당 금액의 10배 (서버와 같게) */
 const CASH_FORFEIT_X = 4;        /* 기권 벌금 배수 (서버와 같게) */
 const SOLO_STAKES = [100, 200, 300, 500, 1000, 2000, 3000, 5000, 10000];
-const CASH = { stake: 100 };
+const CASH = { stake: 100, enabled: null };    /* enabled: 관리자가 켜 뒀는지 (null 이면 아직 모름) */
 
 const cashLogged = () => !!(ACC && ACC.sb && ACC.user);
-const cashWanted = () => !!($('soloCash') && $('soloCash').checked);
+/* 이 브라우저에서 메인 화면에 보일지 (기본은 보임) */
+const cashPrefShow = () => { try { return localStorage.getItem('thirteen-cash-show') !== '0'; } catch (_) { return true; } };
+const cashSetPrefShow = (on) => { try { on ? localStorage.removeItem('thirteen-cash-show') : localStorage.setItem('thirteen-cash-show', '0'); } catch (_) {} };
+const cashLive = () => !!(UI.cash && !UI.cash.done);
+const cashBroke = () => cashLogged() && typeof COIN !== 'undefined' && COIN.balance === 0;
+const cashVisible = () => cashLive() || (CASH.enabled === true && cashPrefShow());
+const cashWanted = () => cashVisible() && !cashLive() && !!($('soloCash') && $('soloCash').checked) && !cashBroke();
 
 /* 서버가 보낸 공개 정보로 판을 다시 만든다. 남의 패는 장수만 맞춘 가짜 패 (규칙 판정에는 장수만 쓰임) */
 function cashState(pub) {
@@ -93,6 +101,7 @@ async function cashCall(action, extra) {
 /* 새 캐시 게임 */
 async function cashStart() {
   if (!cashLogged()) { alert('AI 캐시 게임은 로그인해야 할 수 있어요.'); return; }
+  if (cashBroke()) { alert('코인이 없어서 AI 캐시 게임을 할 수 없어요.'); return; }
   const stake = CASH.stake;
   if (!confirm(`1점당 ${stake.toLocaleString()}코인으로 AI 와 캐시 게임을 시작할까요?\n`
     + '게임이 끝날 때까지 내 코인 전부가 묶이고, 멀티 게임이나 다른 게임을 할 수 없어요.')) return;
@@ -156,7 +165,7 @@ async function cashForfeit() {
       cashUi();
       if (typeof coinRefresh === 'function') coinRefresh();
     }
-  } catch (e) { alert(e.message); }
+  } catch (e) { alert(e.message); await cashResume(true); }
   UI.busy = false; render();
 }
 
@@ -171,7 +180,21 @@ async function cashResume(quiet) {
       cashEnd(r.result);
       return;
     }
-    if (!r.active) return;
+    if (r.enabled !== undefined) CASH.enabled = r.enabled;
+    if (!r.active) {
+      /* 화면에서는 두고 있었는데 서버에 판이 없으면, 관리자가 꺼서 취소된 것 */
+      if (cashLive()) {
+        UI.cash = null; UI.ended = true;
+        say('— 이 판은 취소됐어요 · 묶였던 코인은 돌려받았어요 —');
+        banner(CASH.enabled === false
+          ? '관리자가 AI 캐시 게임을 꺼서 이 판은 취소됐어요. 묶였던 코인은 돌려받았어요.'
+          : '이 판은 더 이상 진행할 수 없어요. 새 게임을 눌러 주세요.');
+        if (typeof coinRefresh === 'function') coinRefresh();
+        render();
+      }
+      cashUi();
+      return;
+    }
     UI.cash = { id: r.id, stake: r.stake, locked: r.locked, done: false };
     UI.ended = false; UI.running = false; UI.rec = null; UI.cleared = null; UI.selected.clear();
     UI.state = cashState(r.pub);
@@ -188,16 +211,58 @@ async function cashResume(quiet) {
   } catch (_) { /* 서버가 아직 준비되지 않았으면 조용히 넘어감 */ }
 }
 
-/* 캐시 게임 줄 (토글 · 금액 · 안내 · 기권 버튼) */
+/* 관리자가 켜 뒀는지 서버에 묻는다 (누구나) */
+async function cashLoadConfig() {
+  try {
+    const r = await cashCall('ai_config', {});
+    CASH.enabled = r.enabled !== false;
+  } catch (_) { CASH.enabled = false; }      /* 서버가 아직 준비되지 않았으면 숨긴다 */
+  cashUi();
+}
+
+/* 관리자: 켜고 끄기 */
+async function cashAdminSet(on) {
+  const el = $('adminCashOn');
+  if (!on && !confirm('AI 캐시 게임을 끌까요?\n모든 사람 화면에서 사라지고, 진행 중이던 판은 모두 취소되어 묶였던 코인을 정산 없이 돌려줘요.')) {
+    el.checked = true; return;
+  }
+  el.disabled = true;
+  try {
+    const r = await cashCall('ai_admin_set', { enabled: on });
+    CASH.enabled = r.enabled;
+    alert(on ? 'AI 캐시 게임을 켰어요.'
+      : `AI 캐시 게임을 껐어요.${r.voided ? ` 진행 중이던 ${r.voided}판을 취소하고 코인을 돌려줬어요.` : ''}`);
+    if (typeof coinRefresh === 'function') coinRefresh();
+  } catch (e) {
+    alert(e.message);
+    el.checked = CASH.enabled !== false;
+  }
+  el.disabled = false;
+  cashUi();
+}
+
+/* 캐시 게임 줄 (토글 · 금액 · 안내 · 기권 버튼) 과 설정 칸 */
 function cashUi() {
-  const live = !!(UI.cash && !UI.cash.done);
+  const live = cashLive();
+  const visible = cashVisible();
+  const broke = cashBroke() && !live;
+
+  /* 설정: 개인 보이기 / 관리자 스위치 */
+  $('cashPrefRow').classList.toggle('hidden', CASH.enabled !== true);
+  $('prefCashShow').checked = cashPrefShow();
+  const admin = typeof COIN !== 'undefined' && COIN.isAdmin && cashLogged();
+  $('cashAdminRow').classList.toggle('hidden', !admin);
+  if (admin && !$('adminCashOn').disabled) $('adminCashOn').checked = CASH.enabled !== false;
+
+  $('soloCashPanel').classList.toggle('hidden', !visible);
+  if ((!visible || broke) && !live) $('soloCash').checked = false;
   const on = cashWanted();
   const sel = $('soloStake');
   if (!sel.options.length) {
     sel.innerHTML = SOLO_STAKES.map((s) => `<option value="${s}">${s.toLocaleString()}코인</option>`).join('');
   }
   sel.value = String(CASH.stake);
-  $('soloCash').disabled = live || !cashLogged();
+  $('soloCash').disabled = live || !cashLogged() || broke;
   sel.disabled = live;
   $('soloStakeRow').classList.toggle('hidden', !on && !live);
   $('soloCashPanel').classList.toggle('live', live);
@@ -208,6 +273,8 @@ function cashUi() {
 
   $('soloCashNote').textContent = !cashLogged()
     ? '로그인하면 AI 와 코인을 걸고 둘 수 있어요. 끄면 지금처럼 재미로 둬요.'
+    : broke
+      ? '코인이 없어서 AI 캐시 게임을 할 수 없어요. 코인이 생기면 다시 켤 수 있어요.'
     : live
       ? '캐시 게임 중이에요. 끝날 때까지 코인 전부가 묶여 있고, 새 게임 · 멀티 게임은 할 수 없어요. '
         + `기권하면 내 패 벌점 x ${CASH_FORFEIT_X} x 1점당 금액을 벌금으로 내고 끝나요.`
@@ -223,6 +290,7 @@ let cashWho;
 function cashOnAuth() {
   const who = (ACC.user && ACC.user.id) || null;
   cashUi();
+  if (CASH.enabled === null) cashLoadConfig();
   if (who === cashWho) return;
   cashWho = who;
   if (!who && UI.cash) {                         /* 로그아웃하면 화면에서만 내려놓는다 (서버에는 남아 있음) */
@@ -237,6 +305,9 @@ function cashOnAuth() {
   $('soloCash').onchange = () => cashUi();
   $('soloStake').onchange = (e) => { CASH.stake = Number(e.target.value); };
   $('btnForfeit').onclick = cashForfeit;
+  $('prefCashShow').onchange = (e) => { cashSetPrefShow(e.target.checked); cashUi(); };
+  $('adminCashOn').onchange = (e) => cashAdminSet(e.target.checked);
   cashUi();
+  cashLoadConfig();
   if (ACC.ready) cashOnAuth();
 })();

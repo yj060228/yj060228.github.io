@@ -1435,6 +1435,14 @@ async function aiFinish(row, st, uid) {
   return { points: pts, delta: Number(r.delta || 0), balance: Number(r.balance || 0) };
 }
 
+/* 관리자가 AI 캐시 게임을 켜 두었는지. 설정 표가 아직 없으면 켜진 것으로 본다 */
+async function aiCashEnabled() {
+  try {
+    const rows = await sel('/app_settings?key=eq.ai_cash&select=value');
+    return !rows.length || rows[0].value.enabled !== false;
+  } catch (_) { return true; }
+}
+
 async function hasActiveAi(uid) {
   if (!uid) return false;
   const rows = await sel(`/ai_games?user_id=eq.${uid}&status=eq.active&select=id`);
@@ -1442,9 +1450,21 @@ async function hasActiveAi(uid) {
 }
 
 async function handleAi(action, body, uid) {
+  /* 누구나: 지금 AI 캐시 게임이 켜져 있는지 (꺼져 있으면 화면에서 아예 숨긴다) */
+  if (action === 'ai_config') return json({ enabled: await aiCashEnabled() });
+
   if (!uid) return fail('AI 캐시 게임은 로그인해야 할 수 있어요.', 401);
 
+  /* 관리자: 켜고 끄기. 끄면 진행 중이던 판은 모두 취소하고 묶였던 코인을 돌려준다 */
+  if (action === 'ai_admin_set') {
+    if (!(await isAdmin(uid))) return fail('권한이 없어요.', 403);
+    const on = body.enabled === true;
+    const voided = Number(await rpc('ai_cash_set_enabled', { p_on: on })) || 0;
+    return json({ enabled: on, voided });
+  }
+
   if (action === 'ai_start') {
+    if (!(await aiCashEnabled())) return fail('관리자가 AI 캐시 게임을 꺼 두었어요.', 403);
     const stake = normStake(body.stake);
     if (stake <= 0) return fail('1점당 금액은 100 ~ 10000 코인 사이에서 100 단위로 골라 주세요.');
     const n = Math.min(4, Math.max(2, parseInt(body.nPlayers, 10) || 4));
@@ -1477,7 +1497,7 @@ async function handleAi(action, body, uid) {
 
   const row = await aiLoad(uid, body.id);
   if (action === 'ai_active') {
-    if (!row) return json({ active: false });
+    if (!row) return json({ active: false, enabled: await aiCashEnabled() });
     const st = row.state;
     if (st.game.winner >= 0) {                  /* 끝났는데 정산이 안 됐던 판 */
       const result = await aiFinish(row, st, uid);
@@ -1485,7 +1505,11 @@ async function handleAi(action, body, uid) {
     }
     return json(aiView(row, st, { active: true }));
   }
-  if (!row) return fail('진행 중인 AI 캐시 게임이 없어요.', 404);
+  if (!row) {
+    return fail((await aiCashEnabled())
+      ? '진행 중인 AI 캐시 게임이 없어요.'
+      : '관리자가 AI 캐시 게임을 꺼서 이 판은 취소됐어요. 묶였던 코인은 돌려받았어요.', 404);
+  }
   const st = row.state;
   const g = st.game;
 

@@ -49,6 +49,7 @@ async function coinLoad(quiet) {
   } catch (e) { COIN.err = e.message; }
   COIN.busy = false;
   coinChip(); coinRender();
+  if (typeof cashUi === 'function') cashUi();     /* 관리자 여부와 잔액이 정해졌으니 캐시 게임 칸도 다시 */
 }
 
 /* 관리자만: 코인을 갖고 있는 사람 전체 목록 */
