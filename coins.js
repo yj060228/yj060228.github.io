@@ -14,7 +14,8 @@ const COIN = {
 const won = (n) => Number(n || 0).toLocaleString('ko-KR');
 const REASON = {
   genesis: '최초 발행', grant: '지급', transfer: '송금', reclaim: '회수',
-  escrow: '판돈 묶음', settle: '정산', refund: '환불', cashout: '바이인 반환',
+  escrow: '판돈 묶음', settle: '정산', refund: '환불', cashout: '묶음 풀림',
+  ai_win: 'AI 게임 승리', ai_loss: 'AI 게임 패배', ai_forfeit: '기권 벌금',
 };
 
 /* 위쪽 막대의 코인 표시 */
@@ -229,7 +230,7 @@ function coinRender() {
     <div class="crow">
       <span class="gdate">${fmtDate(r.created_at)}</span>
       <span class="tag">${REASON[r.reason] || r.reason}</span>
-      <span class="cwho">${r.other_name ? esc(r.other_name) : ''}</span>
+      <span class="cwho">${/^ai_/.test(r.reason) ? 'AI' : r.other_name ? esc(r.other_name) : ''}</span>
       <span class="camt ${r.incoming ? 'pos' : 'neg'}">${r.incoming ? '+' : '−'}${won(r.amount)}</span>
     </div>`).join('') : '<p class="note">아직 오간 코인이 없어요.</p>';
 

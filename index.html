@@ -240,6 +240,9 @@ tr.gap td{text-align:center;color:var(--faint);padding:2px 0;letter-spacing:.3em
 .holders table{width:100%}
 .holders tr[data-name]{cursor:pointer}
 .holders tr[data-name]:hover td{background:var(--accent-soft)}
+.cashrow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.cashrow .acct{display:inline-flex;align-items:center;gap:6px;margin:0}
+#soloCashPanel.live{border-color:var(--gold);background:var(--gold-soft)}
 .arooms{display:flex;flex-direction:column;gap:8px;margin-top:8px}
 .aroom{border:1px solid var(--line-soft);border-radius:8px;background:var(--surface-2);padding:9px 11px}
 .aroom.off{opacity:.6}
@@ -486,6 +489,20 @@ body.modal-open{overflow:hidden}
     <div class="banner hidden" id="banner"></div>
 
     <div id="viewSolo2">
+    <div class="panel" id="soloCashPanel">
+      <div class="cashrow">
+        <label class="switch">
+          <input type="checkbox" id="soloCash">
+          <span>AI 와 캐시 게임</span>
+        </label>
+        <span class="acct" id="soloStakeRow">
+          <label class="note" for="soloStake">1점당</label>
+          <select id="soloStake"></select>
+        </span>
+        <span class="chip cash hidden" id="soloCashChip"></span>
+      </div>
+      <p class="note" id="soloCashNote"></p>
+    </div>
     <div class="table">
       <div class="seats" id="seats"></div>
 
@@ -508,6 +525,7 @@ body.modal-open{overflow:hidden}
           <button class="btn" id="btnPass" disabled>패스</button>
           <button class="btn" id="btnHint">힌트</button>
           <button class="btn" id="btnClearSel">선택 해제</button>
+          <button class="btn danger hidden" id="btnForfeit" title="내 패 벌점 x 4 x 1점당 금액을 내고 끝내요">기권</button>
         </div>
       </div>
     </div>
@@ -597,15 +615,16 @@ body.modal-open{overflow:hidden}
 </div>
 
 <!-- 배포할 때마다 APP_V 를 바꾸면 브라우저가 옛 파일 대신 새 파일을 받는다 -->
-<script>window.APP_V = '20261001c';</script>
-<script src="config.js?v=20261001c"></script>
-<script src="engine.js?v=20261001c"></script>
-<script src="auth.js?v=20261001c"></script>
-<script src="app.js?v=20261001c"></script>
-<script src="multiplayer.js?v=20261001c"></script>
-<script src="rules.js?v=20261001c"></script>
-<script src="mypage.js?v=20261001c"></script>
-<script src="coins.js?v=20261001c"></script>
-<script src="review.js?v=20261001c"></script>
+<script>window.APP_V = '20261001d';</script>
+<script src="config.js?v=20261001d"></script>
+<script src="engine.js?v=20261001d"></script>
+<script src="auth.js?v=20261001d"></script>
+<script src="app.js?v=20261001d"></script>
+<script src="multiplayer.js?v=20261001d"></script>
+<script src="rules.js?v=20261001d"></script>
+<script src="mypage.js?v=20261001d"></script>
+<script src="coins.js?v=20261001d"></script>
+<script src="review.js?v=20261001d"></script>
+<script src="solocash.js?v=20261001d"></script>
 </body>
 </html>

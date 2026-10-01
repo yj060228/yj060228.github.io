@@ -91,7 +91,10 @@ create policy "update own" on public.profiles
 
 1. **SQL Editor**에서 `coins.sql`을 실행합니다. (지갑, 장부, 관리자 함수)
 2. 이어서 `cash_session.sql`을 실행합니다. (캐시 게임 세션 바이인)
-3. `index.ts`를 Edge Function `thirteen`으로 다시 배포합니다.
+3. 이어서 `ai_cash.sql`을 실행합니다. (AI 와 하는 캐시 게임)
+4. `index.ts`를 Edge Function `thirteen`으로 다시 배포합니다.
+   AI 캐시 게임의 AI 는 서버에서 `https://thirteen.kr/weights.bin` 을 받아 씁니다.
+   주소가 다르면 Edge Function 의 Secrets 에 `MODEL_URL` 을 넣어 주세요.
 
 캐시 게임은 **방에 들어올 때 바이인을 한 번 묶고, 방을 나갈 때 남은 만큼 돌려줍니다.**
 판이 끝날 때마다 묶인 코인 안에서 주고받으므로, 바이인보다 적게 남아도 계속 할 수 있어요.
