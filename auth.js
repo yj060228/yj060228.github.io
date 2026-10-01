@@ -312,6 +312,7 @@ function renderBoard() {
     if (typeof myOnAuth === 'function') myOnAuth();
     if (typeof coinOnAuth === 'function') coinOnAuth();
     if (typeof mpOnAuth === 'function') mpOnAuth();
+    if (typeof cashOnAuth === 'function') cashOnAuth();
     return r;
   };
 })();

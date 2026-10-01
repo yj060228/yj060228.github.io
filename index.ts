@@ -1329,9 +1329,208 @@ async function adminStop(code) {
   return { code, returned, closed: true, wasLive };
 }
 
+/* ═══════════════ AI 와 하는 캐시 게임 ═══════════════
+ * 카드를 나누고 AI 가 두는 건 전부 여기(서버)서 한다. 브라우저는 내 패와 공개 정보만 받는다.
+ * 브라우저가 AI 를 맡으면 AI 를 일부러 지게 만들어 관리자 코인을 빼 갈 수 있으니까요.
+ * 사람은 항상 0번 자리, AI 는 1 ~ n-1 번 자리. */
+const AI_ITERS = 300;             /* AI 한 수에 쓰는 탐색 횟수 (서버 계산 시간 제한 안에서) */
+const AI_BUDGET_MS = 1200;        /* 한 요청에서 AI 가 쓰는 시간이 이걸 넘으면 탐색을 줄인다 */
+const AI_MIN_POINTS = 10;         /* 시작하려면 1점당 금액의 10배는 있어야 */
+const AI_FORFEIT_X = 4;           /* 기권 벌금 = 내 패 벌점 x 4 x 1점당 금액 */
+const MODEL_URL = Deno.env.get('MODEL_URL') || 'https://thirteen.kr/weights.bin';
+
+let aiRunner = null, aiRunnerAt = 0;
+async function getAiRunner() {
+  if (aiRunner) return aiRunner;
+  if (nowMs() - aiRunnerAt < 60000) return null;      /* 실패했으면 1분 동안은 다시 안 받음 */
+  aiRunnerAt = nowMs();
+  try {
+    const res = await fetch(MODEL_URL);
+    if (res.ok) aiRunner = new NetRunner(parseWeights(await res.arrayBuffer()));
+  } catch (_) { aiRunner = null; }
+  return aiRunner;                                      /* 모델이 없으면 신경망 없이 탐색 */
+}
+
+function aiPick(g, runner, iters) {
+  const ms = legalMoves(g);
+  if (ms.length === 1) return ms[0];
+  seedRng(randomSeed());
+  return (runner ? ismctsNN(g, iters, runner, 1.0) : ismctsPlain(g, iters * 3)).move;
+}
+
+/* 브라우저에 보내는 공개 정보. 남의 패는 장수만 */
+function aiPub(g) {
+  return {
+    n: g.n, turn: g.turn, winner: g.winner,
+    counts: g.hand.slice(0, g.n).map(popc),
+    passed: g.passed.slice(0, g.n),
+    lead: g.last.type === PASS,
+    lastCards: g.last.type !== PASS ? cardsOf(g.last) : [],
+    lastType: g.last.type, lastPlayer: g.lastPlayer,
+    mustInclude: cardsOf(g.mustInclude), played: cardsOf(g.played),
+    mine: cardsOf(g.hand[0]),
+  };
+}
+
+/* 한 수 두고, 아무도 못 이기는 수면 나머지를 패스시킨다. 일어난 일을 events 에 쌓는다 */
+function aiApply(st, move, events) {
+  const g = st.game;
+  const seat = g.turn;
+  st.moves.push({ s: seat, c: move.type === PASS ? [] : cardsOf(move) });
+  doMove(g, move);
+  events.push({ s: seat, c: move.type === PASS ? [] : cardsOf(move), type: move.type, pub: aiPub(g) });
+  if (move.type !== PASS && g.winner < 0 && nobodyCanBeat(g, g.last)) {
+    while (g.winner < 0 && g.last.type !== PASS) {
+      const p = g.turn;
+      st.moves.push({ s: p, c: [] });
+      doMove(g, PASS_MOVE);
+      events.push({ s: p, c: [], type: PASS, auto: true, pub: aiPub(g) });
+    }
+  }
+}
+
+/* 사람 차례가 오거나 판이 끝날 때까지 AI 가 둔다 */
+async function aiRun(st, events) {
+  const g = st.game;
+  const runner = await getAiRunner();
+  const t0 = nowMs();
+  while (g.winner < 0 && g.turn !== 0) {
+    const iters = nowMs() - t0 > AI_BUDGET_MS ? 60 : AI_ITERS;
+    aiApply(st, aiPick(g, runner, iters), events);
+  }
+}
+
+async function aiLoad(uid, id) {
+  const q1 = id ? `id=eq.${encodeURIComponent(id)}&` : '';
+  const rows = await sel(`/ai_games?${q1}user_id=eq.${uid}&status=eq.active&select=*`);
+  return rows[0] || null;
+}
+async function aiSave(row, st) {
+  const out = await upd(`/ai_games?id=eq.${row.id}&version=eq.${row.version}&status=eq.active`, {
+    state: st, version: row.version + 1, updated_at: new Date().toISOString(),
+  });
+  if (!out || !out.length) throw new Error('다른 창에서 이미 진행했어요. 새로고침해 주세요.');
+  row.version += 1;
+}
+const aiView = (row, st, extra) => ({
+  id: row.id, stake: row.stake, locked: Number(row.locked), n: row.n_players,
+  pub: aiPub(st.game), ...(extra || {}),
+});
+
+/* 판이 끝났으면 정산하고 기록을 남긴다 */
+async function aiFinish(row, st, uid) {
+  const g = st.game;
+  const pts = finalPoints(g);
+  const res = await rpc('ai_cash_close', { p_id: row.id, p_delta: pts[0] * row.stake, p_forfeit: false });
+  const r = (res && res[0]) || {};
+  if (!st.noLog) {
+    await saveLog({
+      source: 'solo', nPlayers: g.n, winnerSeat: g.winner,
+      seats: Array.from({ length: g.n }, (_, i) => i === 0
+        ? { seat: 0, name: st.name || '나', user_id: uid, guest: false, ai: false }
+        : { seat: i, name: 'AI ' + i, user_id: null, guest: false, ai: true }),
+      deal: st.deal, moves: st.moves, points: pts,
+    });
+  }
+  return { points: pts, delta: Number(r.delta || 0), balance: Number(r.balance || 0) };
+}
+
+async function hasActiveAi(uid) {
+  if (!uid) return false;
+  const rows = await sel(`/ai_games?user_id=eq.${uid}&status=eq.active&select=id`);
+  return rows.length > 0;
+}
+
+async function handleAi(action, body, uid) {
+  if (!uid) return fail('AI 캐시 게임은 로그인해야 할 수 있어요.', 401);
+
+  if (action === 'ai_start') {
+    const stake = normStake(body.stake);
+    if (stake <= 0) return fail('1점당 금액은 100 ~ 10000 코인 사이에서 100 단위로 골라 주세요.');
+    const n = Math.min(4, Math.max(2, parseInt(body.nPlayers, 10) || 4));
+    seedRng(randomSeed());
+    const g = initState(n);
+    const prof = await sel(`/profiles?id=eq.${uid}&select=username`).catch(() => []);
+    const st = {
+      game: g, deal: g.hand.slice(0, n).map(cardsOf), moves: [],
+      name: (prof[0] && prof[0].username) || '나', noLog: !!body.noLog,
+    };
+    let opened;
+    try {
+      opened = (await rpc('ai_cash_open', {
+        p_user: uid, p_stake: stake, p_n: n, p_min: stake * AI_MIN_POINTS, p_state: st,
+      }))[0];
+    } catch (e) {
+      const m = String((e && e.message) || e);
+      if (m.includes('코인이 모자라')) {
+        return fail(`코인이 모자라요. 1점당 ${stake.toLocaleString()}코인이면 ${(stake * AI_MIN_POINTS).toLocaleString()}코인 이상 있어야 해요.`);
+      }
+      const hit = /(이미 진행 중[^"]*?요\.|멀티 캐시 게임[^"]*?요\.|관리자[^"]*?요\.)/.exec(m);
+      return fail(hit ? hit[1] : '게임을 열지 못했어요: ' + m.slice(0, 120));
+    }
+    const row = { id: opened.game_id, stake, n_players: n, locked: opened.locked_amount, version: 0 };
+    const events = [];
+    await aiRun(st, events);                    /* AI 가 선이면 먼저 둔다 */
+    if (events.length) await aiSave(row, st);
+    return json(aiView(row, st, { events, start: aiPub(initStateFromDeal(st)) }));
+  }
+
+  const row = await aiLoad(uid, body.id);
+  if (action === 'ai_active') {
+    if (!row) return json({ active: false });
+    const st = row.state;
+    if (st.game.winner >= 0) {                  /* 끝났는데 정산이 안 됐던 판 */
+      const result = await aiFinish(row, st, uid);
+      return json(aiView(row, st, { active: false, result }));
+    }
+    return json(aiView(row, st, { active: true }));
+  }
+  if (!row) return fail('진행 중인 AI 캐시 게임이 없어요.', 404);
+  const st = row.state;
+  const g = st.game;
+
+  if (action === 'ai_forfeit') {
+    if (g.winner >= 0) {
+      const result = await aiFinish(row, st, uid);
+      return json(aiView(row, st, { result }));
+    }
+    const fine = penalty(g.hand[0]) * AI_FORFEIT_X * row.stake;
+    const res = await rpc('ai_cash_close', { p_id: row.id, p_delta: -fine, p_forfeit: true });
+    const r = (res && res[0]) || {};
+    return json({ forfeit: true, fine: -Number(r.delta || 0), balance: Number(r.balance || 0) });
+  }
+
+  if (action === 'ai_play' || action === 'ai_pass') {
+    if (g.winner >= 0) return fail('이미 끝난 판이에요.');
+    if (g.turn !== 0) return fail('아직 내 차례가 아니에요.');
+    const ms = legalMoves(g);
+    let move = null;
+    if (action === 'ai_pass') move = ms.find((m) => m.type === PASS) || null;
+    else {
+      const want = maskFromCards((body.cards || []).map(Number).filter((c) => c >= 0 && c < 52));
+      move = ms.find((m) => m.type !== PASS && maskEq(m, want)) || null;
+    }
+    if (!move) return fail(action === 'ai_pass' ? '지금은 패스할 수 없어요.' : '낼 수 없는 조합이에요.');
+    const events = [];
+    aiApply(st, move, events);
+    await aiRun(st, events);
+    await aiSave(row, st);
+    const result = g.winner >= 0 ? await aiFinish(row, st, uid) : null;
+    return json(aiView(row, st, { events, result }));
+  }
+  return fail('알 수 없는 요청이에요.');
+}
+
+/* 시작 패로 첫 국면을 다시 만든다 (AI 가 먼저 둔 수를 화면에서 차례로 보여 주려고) */
+function initStateFromDeal(st) {
+  return initState(st.deal.length, st.deal.map((h) => maskFromCards(h)));
+}
+
 /* ───────── 요청 처리 ───────── */
 async function handle(body, uid) {
   const action = body.action;
+
+  if (typeof action === 'string' && action.startsWith('ai_')) return handleAi(action, body, uid);
 
   if (action === 'admin_rooms' || action === 'admin_stop') {
     if (!(await isAdmin(uid))) return fail('권한이 없어요.', 403);
@@ -1363,6 +1562,8 @@ async function handle(body, uid) {
     const name = String(body.name || '').trim().slice(0, 16);
     if (!name) return fail('닉네임을 입력해 주세요.');
     const n = Math.min(4, Math.max(2, parseInt(body.nPlayers, 10) || 4));
+
+    if (await hasActiveAi(uid)) return fail('AI 캐시 게임 중이라 멀티플레이를 할 수 없어요. 그 판을 먼저 끝내 주세요.');
 
     /* 캐시 게임이면 로그인과 코인이 필요하다 */
     const stake = normStake(body.stake);
@@ -1430,6 +1631,7 @@ async function handle(body, uid) {
     if (!found) return fail('그런 방이 없어요. 코드를 다시 확인해 주세요.', 404);
     const { room, players, st } = found;
     if (st && st.stopped) return fail('관리자가 닫은 방이에요. 새 방을 만들어 주세요.');
+    if (await hasActiveAi(uid)) return fail('AI 캐시 게임 중이라 멀티플레이를 할 수 없어요. 그 판을 먼저 끝내 주세요.');
     const buyin = buyinOf(room);
     const short = `코인이 모자라요. 이 방은 바이인 ${buyin.toLocaleString()}코인이 있어야 들어올 수 있어요.`;
 

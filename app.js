@@ -81,6 +81,7 @@ const UI = {
   selected: new Set(), busy: false, running: false, ended: false, modelName: null, modelH: 0,
   rec: null,                          /* 이번 판의 시작 패와 수순 */
   cleared: null,                      /* 아무도 못 이겨서 돈 직전의 패 */
+  cash: null,                         /* AI 캐시 게임 중이면 { id, stake, locked } (solocash.js) */
   totals: [0, 0, 0, 0], games: 0, logLines: [],
 };
 const $ = (id) => document.getElementById(id);
@@ -201,7 +202,7 @@ function render() {
 
   $('btnPlay').disabled = !chosen || UI.busy;
   $('btnPass').disabled = !myTurn || UI.busy || !legal.some((m) => m.type === PASS);
-  $('btnHint').disabled = !myTurn || UI.busy;
+  $('btnHint').disabled = !myTurn || UI.busy || !!UI.cash;   /* 코인이 걸린 판에서는 AI 도움 없이 */
   $('btnClearSel').disabled = UI.selected.size === 0;
 
   /* 점수표 */
@@ -269,7 +270,7 @@ async function aiTurn() {
   const s = UI.state;
   UI.busy = true; render();
   await autoPassIfUnbeatable();           /* 사람이 낸 수가 못 이기는 수였던 경우 */
-  while (s.winner < 0 && s.turn !== 0) {
+  while (s.winner < 0 && s.turn !== 0 && UI.state === s) {
     const p = s.turn;
     let r;
     try {
@@ -279,11 +280,13 @@ async function aiTurn() {
       const ms = legalMoves(s);
       r = { move: ms[0] };
     }
+    if (UI.state !== s) break;            /* 그사이 캐시 게임으로 바뀌었으면 이 판은 버린다 */
     applyMove(p, r.move);
     render();
     await sleep(300);
     await autoPassIfUnbeatable();         /* AI 가 낸 수가 못 이기는 수였던 경우 */
   }
+  if (UI.state !== s) { UI.running = false; return; }
   UI.busy = false;
   UI.running = false;
   if (s.winner >= 0) endGame();
@@ -293,7 +296,7 @@ async function aiTurn() {
 async function refreshEval() {
   const chip = $('evalChip');
   const s = UI.state;
-  if (!UI.modelName || s.winner >= 0) { chip.classList.add('hidden'); return; }
+  if (!UI.modelName || s.winner >= 0 || UI.cash) { chip.classList.add('hidden'); return; }
   try {
     const r = await ask({ cmd: 'value', state: s, seat: 0 });
     if (r.value === null || r.value === undefined) { chip.classList.add('hidden'); return; }
@@ -355,6 +358,7 @@ async function logSoloGame() {
 }
 
 async function humanPlay(move) {
+  if (UI.cash) { cashPlay(move); return; }    /* 캐시 게임은 서버가 심판 (solocash.js) */
   UI.selected.clear();
   applyMove(0, move);
   banner('');
@@ -384,7 +388,15 @@ async function newGame() {
 }
 
 /* ───────── 이벤트 ───────── */
-$('btnNew').onclick = () => { if (!UI.busy) newGame(); };
+$('btnNew').onclick = () => {
+  if (UI.cash && !UI.ended) {
+    alert('캐시 게임 중에는 새 게임을 시작할 수 없어요. 끝까지 두거나 기권해 주세요.');
+    return;
+  }
+  if (UI.busy) return;
+  if (typeof cashWanted === 'function' && cashWanted()) cashStart();   /* solocash.js */
+  else newGame();
+};
 $('btnSettings').onclick = () => $('settings').classList.toggle('hidden');
 $('btnClearSel').onclick = () => { UI.selected.clear(); render(); };
 $('btnPlay').onclick = () => { if (UI.chosen) humanPlay(UI.chosen); };
