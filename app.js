@@ -431,13 +431,15 @@ async function useModel(buf, name) {
   UI.modelH = r.H || 0;
   const chip = $('modelChip'), lbl = $('modelLabel');
   if (name) {
-    lbl.textContent = `${name} · 은닉 ${UI.modelH}`;
+    lbl.textContent = name;
+    chip.title = `${name} · 은닉 ${UI.modelH}`;   /* 은닉층 크기는 마우스를 올리면 보인다 */
     chip.classList.add('on');
     $('btnClear').classList.remove('hidden');
     $('engineChip').textContent = '신경망 ISMCTS';
     $('modelNote').textContent = '이 브라우저에 저장돼 있어요. 다른 파일을 올리면 교체돼요.';
   } else {
     lbl.textContent = '기본 탐색 AI';
+    chip.title = '';
     chip.classList.remove('on');
     $('btnClear').classList.add('hidden');
     $('engineChip').textContent = 'ISMCTS';
