@@ -54,6 +54,7 @@ button{font:inherit;color:inherit;cursor:pointer}
 .bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .brand{display:flex;align-items:baseline;gap:8px;margin-right:auto}
 .brand .sub{font-size:12px;color:var(--faint);font-family:var(--font-data)}
+.menu{display:flex;gap:10px;margin-left:auto}   /* 줄이 넘치면 버튼 다섯 개가 한 묶음으로 넘어간다 */
 .btn{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:7px 12px;font-size:13px;font-weight:500;transition:background .13s,border-color .13s}
 .btn:hover{border-color:var(--accent);background:var(--surface-2)}
 .btn[disabled]{opacity:.42;cursor:not-allowed}
@@ -242,6 +243,16 @@ tr.gap td{text-align:center;color:var(--faint);padding:2px 0;letter-spacing:.3em
 [hidden]{display:none!important}
 .hidden{display:none!important}
 @media (max-width:560px){
+  /* 위 막대: 1줄 제목 + 모델, 2줄 코인, 3줄 메뉴 버튼 다섯 개를 같은 너비로 */
+  .bar{gap:8px 8px}
+  .brand{flex:1 1 auto;min-width:0}
+  .brand h1{white-space:nowrap}
+  .brand .sub{display:none}            /* 모델 칩과 겹치는 정보라 좁은 화면에서는 뺀다 */
+  #modelChip{flex:0 1 auto;min-width:0;max-width:60%;overflow:hidden}
+  #modelLabel{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .chip.coin{order:1}
+  .menu{order:2;display:grid;grid-template-columns:repeat(5,1fr);gap:6px;flex:1 1 100%}
+  .menu .btn{padding:9px 0;font-size:13px;text-align:center;white-space:nowrap}
   .seats{grid-template-columns:1fr 1fr}
   .card{width:40px;height:56px}.card .rk{font-size:14px}.card .st{font-size:13px}
   .hand{gap:4px;min-height:56px}
@@ -259,11 +270,13 @@ tr.gap td{text-align:center;color:var(--faint);padding:2px 0;letter-spacing:.3em
     </div>
     <span class="chip" id="modelChip"><span class="dot"></span><span id="modelLabel">기본 탐색 AI</span></span>
     <button class="chip coin" id="coinChip" hidden></button>
-    <button class="btn" id="btnRules">규칙</button>
-    <button class="btn" id="btnCoins">코인</button>
-    <button class="btn" id="btnMy">내 기록</button>
-    <button class="btn" id="btnSettings">설정</button>
-    <button class="btn primary" id="btnNew">새 게임</button>
+    <div class="menu">
+      <button class="btn" id="btnRules">규칙</button>
+      <button class="btn" id="btnCoins">코인</button>
+      <button class="btn" id="btnMy">내 기록</button>
+      <button class="btn" id="btnSettings">설정</button>
+      <button class="btn primary" id="btnNew">새 게임</button>
+    </div>
   </div>
 
   <div class="tabs" role="tablist">
