@@ -5,7 +5,7 @@ const MP = {
   sub: null, poll: null, tick: null, busy: false, err: '',
   name: '', codeInput: '',          /* 입력칸 내용. 화면을 다시 그려도 유지되게 */
   cash: false, stake: 100, buyinPts: 100,   /* 캐시 게임 설정 (바이인은 몇 점분인지로) */
-  chatDraft: '', chatSeen: 0,               /* 채팅 입력칸과 마지막으로 그린 개수 */
+  chatDraft: '', chatSeen: '',              /* 채팅 입력칸과 마지막으로 그린 목록의 표시 (방 코드·개수·마지막 시각) */
   owner: null, saved: null,         /* 이 자리가 어느 계정 것인지 */
 };
 const MPCFG = window.THIRTEEN_CONFIG || {};
@@ -124,9 +124,13 @@ function mpRenderChat() {
   const box = $('mpChat');
   if (!box) return;
   const msgs = (MP.state && MP.state.chat) || [];
-  if (msgs.length === MP.chatSeen) return;        /* 바뀐 게 없으면 그대로 둔다 */
+  /* 바뀐 게 없으면 그대로 둔다. 개수만 보면 다른 방에 들어갔을 때나
+     최근 50개로 잘려 개수가 그대로일 때 새로 그리지 않아서, 방 코드와 마지막 시각도 같이 본다 */
+  const last = msgs.length ? msgs[msgs.length - 1].t : 0;
+  const seen = `${MP.code || ''}:${msgs.length}:${last}`;
+  if (seen === MP.chatSeen) return;
   const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
-  MP.chatSeen = msgs.length;
+  MP.chatSeen = seen;
 
   box.innerHTML = msgs.length
     ? msgs.map((c) => {
@@ -433,7 +437,8 @@ function mpExit() {
   if (MP.sub) { try { MP.sub.unsubscribe(); } catch (_) {} MP.sub = null; }
   MP.code = MP.token = MP.playerId = MP.owner = null;
   MP.state = null; MP.hand = []; MP.seat = null; MP.selected.clear();
-  MP.chatSeen = 0; MP.chatDraft = '';
+  MP.chatSeen = ''; MP.chatDraft = '';
+  if ($('mpChat')) $('mpChat').innerHTML = '';     /* 이전 방 대화를 화면에서도 지운다 */
   if ($('mpChatInput')) $('mpChatInput').value = '';
   mpSave();
 }
