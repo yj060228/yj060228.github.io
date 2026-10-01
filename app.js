@@ -460,7 +460,7 @@ async function useModel(buf, name) {
       if (res.ok) {
         const buf = await res.arrayBuffer();
         parseWeights(buf);
-        await useModel(buf, '기본 모델');
+        await useModel(buf, 'Gen2 모델');
         loaded = true;
       }
     } catch (_) {}
