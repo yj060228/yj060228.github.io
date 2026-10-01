@@ -8,6 +8,7 @@ const COIN = {
   rows: [], busy: false, err: '', msg: '',
   to: '', amount: '', gTo: '', gAmount: '', rTo: '', rAmount: '',
   holders: null, summary: null, holdersBusy: false, holderQuery: '',
+  rooms: null, roomsBusy: false,     /* 관리자: 멀티 게임 방 목록 */
 };
 
 const won = (n) => Number(n || 0).toLocaleString('ko-KR');
@@ -42,7 +43,7 @@ async function coinLoad(quiet) {
     if (COIN.open) {
       const h = await ACC.sb.rpc('coin_history', { p_limit: 30 });
       COIN.rows = h.error ? [] : (h.data || []);
-      if (COIN.isAdmin) await loadHolders();
+      if (COIN.isAdmin) await Promise.all([loadHolders(), loadRooms()]);
     }
   } catch (e) { COIN.err = e.message; }
   COIN.busy = false;
@@ -66,6 +67,84 @@ async function loadHolders() {
     COIN.err = e.message;
   }
   COIN.holdersBusy = false;
+}
+
+/* 관리자만: 진행 중인 멀티 게임 방 목록 (서버 함수가 관리자인지 다시 확인합니다) */
+async function loadRooms() {
+  if (!COIN.isAdmin || typeof mpCall !== 'function') return;
+  COIN.roomsBusy = true;
+  try {
+    const r = await mpCall('admin_rooms', {});
+    COIN.rooms = r.rooms || [];
+  } catch (e) {
+    COIN.rooms = [];
+    COIN.err = e.message;
+  }
+  COIN.roomsBusy = false;
+}
+
+/* 관리자만: 방 닫기. 하던 판은 무효가 되고 묶인 코인은 각자에게 돌아간다 */
+async function adminStopRoom(code) {
+  const room = (COIN.rooms || []).find((r) => r.code === code);
+  if (!room) return;
+  const lines = room.players.filter((p) => p.stack !== null)
+    .map((p) => `  ${p.name} ${won(p.stack)}코인`).join('\n');
+  const msg = `${code} 방을 닫을까요?\n`
+    + (room.live ? '지금 하던 판은 무효가 됩니다.\n' : '')
+    + (lines ? `묶여 있는 코인을 각자에게 돌려줍니다.\n${lines}\n` : '')
+    + '참가자들은 더 이상 이 방에서 둘 수 없어요.';
+  if (!confirm(msg)) return;
+
+  COIN.err = ''; COIN.msg = '';
+  COIN.roomsBusy = true; coinRender();
+  try {
+    const r = await mpCall('admin_stop', { code });
+    const total = (r.returned || []).reduce((sum, x) => sum + Number(x.amount), 0);
+    COIN.msg = `${esc(code)} 방을 닫았어요.` + (r.returned && r.returned.length
+      ? ` ${r.returned.length}명에게 모두 ${won(total)}코인을 돌려줬어요.` : '');
+  } catch (e) {
+    COIN.err = e.message;
+  }
+  COIN.roomsBusy = false;
+  await Promise.all([loadRooms(), loadHolders()]);
+  coinRender();
+}
+
+const ROOM_STATUS = { waiting: '대기 중', playing: '진행 중', ended: '판 끝남', gone: '방 없음' };
+
+function roomsHtml() {
+  const rows = COIN.rooms;
+  const body = rows === null ? '<p class="note">불러오는 중…</p>'
+    : !rows.length ? '<p class="note">최근 12시간 안에 열린 방이 없어요.</p>'
+    : rows.map((r) => {
+      const state = r.stopped ? '닫힘' : r.live ? `${r.round}번째 판 진행 중` : (ROOM_STATUS[r.status] || r.status);
+      const who = r.players.map((p) => `
+        <span class="rp${p.present ? '' : ' faint'}">${esc(p.name)}${p.host ? '<span class="tag">방장</span>' : ''}${
+          p.stack !== null ? `<b class="${p.stack === 0 ? 'neg' : ''}">◈${won(p.stack)}</b>` : ''}${
+          p.present ? '' : '<span class="tag">나감</span>'}</span>`).join('');
+      return `
+      <div class="aroom${r.stopped ? ' off' : ''}">
+        <div class="arow">
+          <span class="code">${esc(r.code)}</span>
+          <span class="tag ${r.live ? 'pos' : ''}">${state}</span>
+          ${r.stake ? `<span class="chip cash">◈ 1점당 ${won(r.stake)}</span>` : '<span class="tag">일반</span>'}
+          ${r.locked ? `<span class="note">묶임 ${won(r.locked)}</span>` : ''}
+          <span class="gdate">${r.updatedAt ? fmtDate(r.updatedAt) : ''}</span>
+          ${r.stopped && !r.locked ? '' : `<button class="btn danger" data-stop="${esc(r.code)}" ${COIN.roomsBusy ? 'disabled' : ''}>닫기</button>`}
+        </div>
+        <div class="aplayers">${who || '<span class="note">참가자 없음</span>'}</div>
+      </div>`;
+    }).join('');
+
+  return `
+    <h3 class="subhead">멀티 게임 (관리자)</h3>
+    <div class="sendrow">
+      <span class="note">최근 12시간 안에 움직인 방과, 코인이 묶여 있는 방이에요.</span>
+      <button class="btn" id="aReload" ${COIN.roomsBusy ? 'disabled' : ''}>${COIN.roomsBusy ? '불러오는 중…' : '새로고침'}</button>
+    </div>
+    <div class="arooms" id="aRooms">${body}</div>
+    <p class="note">닫기를 누르면 하던 판은 무효가 되고, 묶여 있던 바이인을 그 판 직전 금액 그대로 각자에게 돌려줘요.
+       닫힌 방에서는 더 둘 수 없고 새로 들어올 수도 없어요.</p>`;
 }
 
 /* 코인 보내기 */
@@ -188,7 +267,8 @@ function coinRender() {
     <p class="note">상대 지갑에서 내 지갑으로 되가져옵니다. 가진 것보다 많이 적으면 있는 만큼만 가져와요.
        캐시 게임에 묶인 코인은 건드리지 않습니다 — 판이 끝나야 정산되니까요.
        회수 내역은 상대의 코인 내역에도 남습니다.</p>
-    ${holdersHtml()}` : ''}
+    ${holdersHtml()}
+    ${roomsHtml()}` : ''}
 
     <h3 class="subhead">주고받은 내역</h3>
     <div class="clist">${list}</div>`;
@@ -217,6 +297,15 @@ function coinRender() {
       if (t) t.innerHTML = holderRows();
       const c = document.getElementById('hCount');
       if (c) c.textContent = holderList().length + '명';
+    };
+  }
+  const ar = document.getElementById('aReload');
+  if (ar) ar.onclick = async () => { await loadRooms(); coinRender(); };
+  const rooms = document.getElementById('aRooms');
+  if (rooms) {
+    rooms.onclick = (e) => {
+      const b = e.target.closest('button[data-stop]');
+      if (b) adminStopRoom(b.dataset.stop);
     };
   }
   const re = document.getElementById('hReload');
