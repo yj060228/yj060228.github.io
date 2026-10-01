@@ -275,8 +275,32 @@ tr.gap td{text-align:center;color:var(--faint);padding:2px 0;letter-spacing:.3em
   .menu{gap:8px}
   .menu .btn{height:34px;padding:0 14px}
 }
+/* ───────── 관리자 화면 ─────────
+ * 관리자 계정이면 게임 화면을 숨기고 관리자 화면을 보여 준다 (admin.js 가 body 에 admin-mode 를 붙인다) */
+#viewAdmin,#admMain,#admSide{display:flex;flex-direction:column;gap:12px}
+#viewAdminRight{display:contents}
+#admSide{order:4}
+body.admin-mode .tabs,body.admin-mode #viewSolo,body.admin-mode #viewSolo2,body.admin-mode #viewMp,
+body.admin-mode #viewSoloRight,body.admin-mode #viewMpRight,body.admin-mode #viewMpLeft,
+body.admin-mode #viewMy,body.admin-mode #banner,body.admin-mode #btnNew,body.admin-mode #btnMy,
+body.admin-mode #btnSettings,body.admin-mode #modelChip,body.admin-mode .brand .sub{display:none!important}
+body.admin-mode #viewAdmin{display:flex!important}
+body.admin-mode #viewAdminRight{display:contents!important}
+body.admin-mode .menu{grid-template-columns:repeat(2,1fr)}
+.admlist{display:flex;flex-direction:column;gap:4px;max-height:min(60vh,560px);overflow-y:auto}
+.agame{display:flex;align-items:center;gap:8px;flex-wrap:wrap;text-align:left;background:var(--surface-2);border:1px solid var(--line-soft);border-radius:8px;padding:6px 9px;font-size:13px}
+.agame:hover{border-color:var(--accent)}
+#admMain .stat .sbig{font-size:clamp(19px,4.6vw,28px);overflow-wrap:anywhere}
+.aled{background:var(--surface-2);border:1px solid var(--line-soft);border-radius:8px;padding:5px 9px;font-size:13px}
+.aled .r1,.aled .r2{display:flex;align-items:center;gap:8px}
+.aled .r1 .gdate{margin-left:auto}
+.aled .r2 .w{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}
+.aled .r2 b{font-family:var(--font-data)}
+.agame .aw{flex:1 1 100%}
+.agame .note{margin-left:auto}
 @media (min-width:1180px){
   .wrap{max-width:1480px}
+  body.admin-mode #viewAdminRight{display:flex!important;flex-direction:column;gap:12px}
   /* 위 막대도 아래 세 칸에 맞춘다: 제목은 왼쪽 칸, 모델 · 코인은 가운데 칸, 메뉴는 오른쪽 끝 */
   .bar{display:grid;grid-template-columns:300px minmax(0,1fr) auto;gap:16px;align-items:center}
   .brand{margin-right:0}
@@ -498,6 +522,9 @@ body.modal-open{overflow:hidden}
 
     <div class="banner hidden" id="banner"></div>
 
+    <!-- 관리자 화면 (관리자 계정일 때만 admin.js 가 보여 준다) -->
+    <div id="viewAdmin" hidden><div id="admMain"></div></div>
+
     <div id="viewSolo2">
     <div class="panel" id="soloCashPanel">
       <div class="cashrow">
@@ -593,6 +620,7 @@ body.modal-open{overflow:hidden}
       <div class="log" id="log"></div>
     </div>
     </div>
+    <div id="viewAdminRight" hidden><div id="admSide"></div></div>
     <div id="viewMpRight" hidden>
     <div class="panel hidden" id="mpScorePanel">
       <h2 id="mpScoreTitle">방 점수</h2>
@@ -625,16 +653,17 @@ body.modal-open{overflow:hidden}
 </div>
 
 <!-- 배포할 때마다 APP_V 를 바꾸면 브라우저가 옛 파일 대신 새 파일을 받는다 -->
-<script>window.APP_V = '20261001e';</script>
-<script src="config.js?v=20261001e"></script>
-<script src="engine.js?v=20261001e"></script>
-<script src="auth.js?v=20261001e"></script>
-<script src="app.js?v=20261001e"></script>
-<script src="multiplayer.js?v=20261001e"></script>
-<script src="rules.js?v=20261001e"></script>
-<script src="mypage.js?v=20261001e"></script>
-<script src="coins.js?v=20261001e"></script>
-<script src="review.js?v=20261001e"></script>
-<script src="solocash.js?v=20261001e"></script>
+<script>window.APP_V = '20261001f';</script>
+<script src="config.js?v=20261001f"></script>
+<script src="engine.js?v=20261001f"></script>
+<script src="auth.js?v=20261001f"></script>
+<script src="app.js?v=20261001f"></script>
+<script src="multiplayer.js?v=20261001f"></script>
+<script src="rules.js?v=20261001f"></script>
+<script src="mypage.js?v=20261001f"></script>
+<script src="coins.js?v=20261001f"></script>
+<script src="review.js?v=20261001f"></script>
+<script src="solocash.js?v=20261001f"></script>
+<script src="admin.js?v=20261001f"></script>
 </body>
 </html>
