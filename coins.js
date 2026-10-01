@@ -13,7 +13,7 @@ const COIN = {
 const won = (n) => Number(n || 0).toLocaleString('ko-KR');
 const REASON = {
   genesis: '최초 발행', grant: '지급', transfer: '송금', reclaim: '회수',
-  escrow: '판돈 묶음', settle: '정산', refund: '환불',
+  escrow: '판돈 묶음', settle: '정산', refund: '환불', cashout: '바이인 반환',
 };
 
 /* 위쪽 막대의 코인 표시 */

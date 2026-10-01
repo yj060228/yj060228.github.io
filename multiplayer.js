@@ -186,7 +186,7 @@ function mpRenderLobby() {
           `<option value="${b}"${b === mpBuyin() ? ' selected' : ''}>${b.toLocaleString()}코인 (${b / MP.stake}점분)</option>`).join('')}</select>
       </div>
       <p class="note">${canCash()
-        ? '벌점 1점당 고른 금액만큼 참가자끼리 주고받아요. 판을 시작할 때 바이인이 잠시 묶이고, 한 판에 잃는 금액은 그 안에서 끝납니다. 이 방에 들어오려면 바이인만큼의 코인이 있어야 해요.'
+        ? '벌점 1점당 고른 금액만큼 참가자끼리 주고받아요. 방에 들어오면 바이인이 묶이고, 판마다 그 안에서 주고받다가 방을 나갈 때 남은 만큼 돌려받아요. 바이인보다 적게 남아도 계속 할 수 있고, 다 잃으면 관전만 할 수 있어요.'
         : '캐시 게임은 로그인해야 쓸 수 있어요.'}</p>
     </div>
     <div class="acct">
@@ -250,6 +250,8 @@ const mpBuyin = () => {
   return list.includes(want) ? want : (list[list.length - 1] || MP.stake * 100);
 };
 const canCash = () => !!(ACC.sb && ACC.user);
+/* 정산 금액. 서버가 실제로 오간 금액(delta)을 보내 주고, 옛 기록이면 점수로 계산한다 */
+const mpDelta = (r, stake) => (typeof r.delta === 'number' ? r.delta : r.points * stake);
 /* 내 기록 화면에서 저장을 끄면 이 방의 내 기록도 남기지 않는다 */
 const mpNoLog = () => (typeof myLoggingOn === 'function' ? !myLoggingOn() : false);
 
@@ -267,21 +269,28 @@ function mpRenderRoom() {
       <button class="btn" id="mpLeave" style="margin-left:auto">방 나가기</button>
     </div>
     <p class="note" id="mpCopyNote">${waiting ? '이 코드나 링크를 친구에게 보내세요.' : `${st.round}번째 판 진행 중`}</p>
-    ${st.stake ? `<p class="note">캐시 게임이에요. 판을 시작하면 바이인 <b>${st.buyin.toLocaleString()}코인</b>이 묶이고,
-       끝나면 벌점 1점당 <b>${st.stake.toLocaleString()}코인</b>씩 주고받아요.
-       한 판에 잃는 금액은 바이인(${Math.round(st.buyin / st.stake)}점분)까지입니다.</p>` : ''}
-    ${st.cash ? `<div class="settle"><div class="slabel">정산</div>${st.cash.rows.map((r) => `
+    ${st.stake ? `<p class="note">캐시 게임이에요. 들어올 때 바이인 <b>${st.buyin.toLocaleString()}코인</b>이 묶이고,
+       판이 끝날 때마다 벌점 1점당 <b>${st.stake.toLocaleString()}코인</b>씩 그 안에서 주고받아요.
+       바이인보다 적게 남아도 계속 할 수 있고, 한 판에 잃는 금액은 남은 바이인까지예요.
+       다 잃으면 관전으로 바뀌고, 방을 나가면 남은 만큼 돌려받아요.</p>` : ''}
+    ${st.cash && st.cash.rows ? `<div class="settle"><div class="slabel">정산</div>${st.cash.rows.map((r) => {
+      const d = mpDelta(r, st.cash.stake);
+      return `
       <div class="drow"><span class="dname">${esc(r.name)}</span>
         <span class="note">${r.points > 0 ? '+' : ''}${r.points}점</span>
-        <span class="dpt ${r.points > 0 ? 'pos' : r.points < 0 ? 'neg' : ''}">${r.points > 0 ? '+' : ''}${(r.points * st.cash.stake).toLocaleString()}코인</span>
-      </div>`).join('')}</div>` : ''}
+        <span class="dpt ${d > 0 ? 'pos' : d < 0 ? 'neg' : ''}">${d > 0 ? '+' : ''}${d.toLocaleString()}코인</span>
+      </div>`;
+    }).join('')}</div>` : ''}
     <div class="plist">${st.players.map((p) => `
       <div class="prow${!waiting && st.turn === p.seat && st.winner < 0 ? ' turn' : ''}">
         <span>${esc(p.name)}</span>
         ${p.id === st.hostPlayer ? '<span class="tag">방장</span>' : ''}
         ${p.guest ? '<span class="tag">게스트</span>' : ''}
         ${!p.present ? '<span class="tag">나감</span>' : ''}
-        ${waiting ? '' : `<span class="cnt">${p.cards}장</span>`}
+        ${p.spectator ? `<span class="tag">${p.stack === 0 ? '올인 · 관전' : '관전'}</span>` : ''}
+        ${st.stake && p.stack !== null && p.stack !== undefined
+          ? `<span class="tag stack${p.stack === 0 ? ' neg' : ''}" title="남은 바이인">◈ ${p.stack.toLocaleString()}</span>` : ''}
+        ${waiting || p.spectator ? '' : `<span class="cnt">${p.cards}장</span>`}
       </div>`).join('')}</div>
     ${waiting && isHost ? '<div class="acct"><button class="btn primary" id="mpStart">게임 시작</button></div>' : ''}
     ${waiting && !isHost ? '<p class="note">방장이 시작하기를 기다리는 중이에요.</p>' : ''}
@@ -291,7 +300,19 @@ function mpRenderRoom() {
     try { await navigator.clipboard.writeText(link); $('mpCopyNote').textContent = '링크를 복사했어요.'; }
     catch (_) { $('mpCopyNote').textContent = link; }
   };
-  $('mpLeave').onclick = () => mpDo(async () => { await mpCall('leave', { token: MP.token }); mpExit(); });
+  $('mpLeave').onclick = () => {
+    const me = st.players.find((p) => p.id === MP.playerId);
+    const live = st.status === 'playing' && st.winner < 0 && me && !me.spectator;
+    if (st.stake && me && me.stack !== null && me.stack !== undefined
+        && !confirm(live
+          ? '지금 판은 자동으로 패스하며 끝까지 진행되고, 판이 끝나면 남은 바이인을 돌려받아요. 나갈까요?'
+          : `남은 바이인 ${me.stack.toLocaleString()}코인을 돌려받고 방을 나갈까요?`)) return;
+    mpDo(async () => {
+      await mpCall('leave', { token: MP.token });
+      mpExit();
+      if (typeof coinRefresh === 'function') coinRefresh();
+    });
+  };
   if ($('mpStart')) $('mpStart').onclick = () => mpDo(async () => { await mpCall('start', { token: MP.token }); await mpRefresh(); });
 }
 
@@ -340,7 +361,11 @@ function mpRenderTable() {
   const v = $('mpVerdict');
   let chosen = null;
   if (st.winner >= 0) { v.className = 'verdict'; v.textContent = '판 종료'; }
-  else if (MP.seat === null || MP.seat === undefined) { v.className = 'verdict'; v.textContent = '관전 중'; }
+  else if (MP.seat === null || MP.seat === undefined) {
+    const me = st.players.find((p) => p.id === MP.playerId);
+    v.className = 'verdict';
+    v.textContent = me && me.stack === 0 ? '바이인을 다 잃어서 관전 중이에요' : '관전 중';
+  }
   else if (!myTurn) {
     v.className = 'verdict';
     v.textContent = `${(st.players.find((p) => p.seat === st.turn) || {}).name || ''} 차례`;
@@ -363,12 +388,16 @@ function mpRenderTable() {
 function mpRenderScore() {
   const st = MP.state;
   const rows = st.players.slice().sort((a, b) => (st.totals[b.id] || 0) - (st.totals[a.id] || 0));
-  $('mpScore').innerHTML = '<tr><th style="text-align:left">이름</th><th>누적</th><th>남은 장수</th></tr>'
+  const cash = !!st.stake;
+  $('mpScore').innerHTML = '<tr><th style="text-align:left">이름</th><th>누적</th>'
+    + (cash ? '<th>남은 바이인</th>' : '') + '<th>남은 장수</th></tr>'
     + rows.map((p) => {
       const t = st.totals[p.id] || 0;
+      const s = p.stack;
       return `<tr class="${p.id === MP.playerId ? 'me' : ''}"><td style="text-align:left">${esc(p.name)}</td>
         <td class="${t > 0 ? 'pos' : t < 0 ? 'neg' : ''}">${t > 0 ? '+' : ''}${t}</td>
-        <td>${st.status === 'waiting' ? '-' : p.cards}</td></tr>`;
+        ${cash ? `<td class="${s === 0 ? 'neg' : ''}">${s === null || s === undefined ? '-' : s.toLocaleString()}</td>` : ''}
+        <td>${st.status === 'waiting' || p.spectator ? '-' : p.cards}</td></tr>`;
     }).join('');
 }
 
@@ -398,6 +427,7 @@ function mpEnter(r) {
   mpSave();
   mpSubscribe();
   mpRefresh();
+  if (MP.state && MP.state.stake && typeof coinRefresh === 'function') coinRefresh();
 }
 function mpExit() {
   if (MP.sub) { try { MP.sub.unsubscribe(); } catch (_) {} MP.sub = null; }
