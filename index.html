@@ -224,6 +224,14 @@ tr.gap td{text-align:center;color:var(--faint);padding:2px 0;letter-spacing:.3em
 .cashbox{border:1px solid var(--line);border-radius:var(--r);background:var(--surface-2);padding:11px 13px;display:flex;flex-direction:column;gap:8px}
 .cashbox .acct{margin:0}
 .settle{border:1px solid var(--gold);border-radius:var(--r);background:var(--gold-soft);padding:10px 13px;margin-top:4px}
+.chat{height:190px;overflow-y:auto;border:1px solid var(--line-soft);border-radius:8px;padding:9px 11px;background:var(--surface-2);display:flex;flex-direction:column;gap:5px;margin-bottom:9px}
+.cmsg{font-size:13px;line-height:1.5;word-break:break-word}
+.cmsg .nm{font-weight:600;margin-right:6px}
+.cmsg.me .nm{color:var(--accent)}
+.cmsg .tm{font-family:var(--font-data);font-size:11px;color:var(--faint);margin-left:6px}
+.chat .note{margin:auto 0;text-align:center}
+.btn.danger{border-color:var(--bad);color:var(--bad)}
+.btn.danger:hover:not(:disabled){background:var(--bad);color:#fff}
 .holders{max-height:340px;overflow-y:auto;border:1px solid var(--line-soft);border-radius:8px;padding:4px 11px 8px;background:var(--surface-2)}
 .holders table{width:100%}
 .holders tr[data-name]{cursor:pointer}
@@ -395,6 +403,16 @@ tr.gap td{text-align:center;color:var(--faint);padding:2px 0;letter-spacing:.3em
       <h2>방 점수</h2>
       <table class="score" id="mpScore"></table>
     </div>
+    <div class="panel hidden" id="mpChatPanel">
+      <h2>대화</h2>
+      <div class="chat" id="mpChat"></div>
+      <div class="sendrow">
+        <input type="text" id="mpChatInput" maxlength="200" placeholder="같은 방 사람들에게 보낼 말" autocomplete="off">
+        <button class="btn" id="mpChatSend">보내기</button>
+      </div>
+      <p class="note" id="mpChatNote">최근 50개까지 남아요. 방이 정리되면 같이 사라집니다.</p>
+    </div>
+
     <div class="panel hidden" id="mpLogPanel">
       <h2>진행</h2>
       <div class="log" id="mpLog"></div>

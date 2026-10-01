@@ -6,13 +6,13 @@
 const COIN = {
   open: false, balance: null, locked: 0, isAdmin: false,
   rows: [], busy: false, err: '', msg: '',
-  to: '', amount: '', gTo: '', gAmount: '',
+  to: '', amount: '', gTo: '', gAmount: '', rTo: '', rAmount: '',
   holders: null, summary: null, holdersBusy: false, holderQuery: '',
 };
 
 const won = (n) => Number(n || 0).toLocaleString('ko-KR');
 const REASON = {
-  genesis: '최초 발행', grant: '지급', transfer: '송금',
+  genesis: '최초 발행', grant: '지급', transfer: '송금', reclaim: '회수',
   escrow: '판돈 묶음', settle: '정산', refund: '환불',
 };
 
@@ -103,6 +103,24 @@ async function coinGrant() {
   coinLoad(true);
 }
 
+/* 관리자 회수 — 캐시 게임에 묶인 코인은 건드리지 않습니다 */
+async function coinReclaim() {
+  const to = COIN.rTo.trim();
+  const amt = Math.floor(Number(COIN.rAmount));
+  COIN.err = ''; COIN.msg = '';
+  if (!to || !Number.isFinite(amt) || amt <= 0) { COIN.err = '아이디와 금액을 적어 주세요.'; return coinRender(); }
+  if (!confirm(`${to} 님에게서 ${won(amt)}코인을 회수할까요?\n되돌릴 수 없고, 상대의 코인 내역에 남습니다.`)) return;
+
+  COIN.busy = true; coinRender();
+  const { data, error } = await ACC.sb.rpc('admin_reclaim', { p_username: to, p_amount: amt });
+  COIN.busy = false;
+  if (error) { COIN.err = cleanErr(error.message); return coinRender(); }
+  const row = (data && data[0]) || {};
+  COIN.msg = `${esc(to)} 님에게서 ${won(row.taken)}코인을 회수했어요. (남은 코인 ${won(row.remaining)})`;
+  COIN.rTo = ''; COIN.rAmount = '';
+  coinLoad(true);
+}
+
 /* 서버가 보낸 오류에서 사람이 읽을 부분만 남긴다 */
 function cleanErr(m) {
   const s = String(m || '');
@@ -160,6 +178,16 @@ function coinRender() {
       <button class="btn" id="gSend" ${COIN.busy ? 'disabled' : ''}>지급</button>
     </div>
     <p class="note">내 지갑에서 빠져나갑니다. 전체 발행량은 1억 코인으로 고정이에요.</p>
+
+    <h3 class="subhead">회수 (관리자)</h3>
+    <div class="sendrow">
+      <input type="text" id="rTo" placeholder="회수할 사람 아이디" value="${esc(COIN.rTo)}" autocomplete="off">
+      <input type="text" id="rAmt" inputmode="numeric" placeholder="금액" value="${esc(COIN.rAmount)}">
+      <button class="btn danger" id="rSend" ${COIN.busy ? 'disabled' : ''}>회수</button>
+    </div>
+    <p class="note">상대 지갑에서 내 지갑으로 되가져옵니다. 가진 것보다 많이 적으면 있는 만큼만 가져와요.
+       캐시 게임에 묶인 코인은 건드리지 않습니다 — 판이 끝나야 정산되니까요.
+       회수 내역은 상대의 코인 내역에도 남습니다.</p>
     ${holdersHtml()}` : ''}
 
     <h3 class="subhead">주고받은 내역</h3>
@@ -170,10 +198,13 @@ function coinRender() {
     if (el) el.oninput = () => { COIN[key] = el.value; };
   };
   keep('cTo', 'to'); keep('cAmt', 'amount'); keep('gTo', 'gTo'); keep('gAmt', 'gAmount');
+  keep('rTo', 'rTo'); keep('rAmt', 'rAmount');
   const send = document.getElementById('cSend');
   if (send) send.onclick = coinSend;
   const grant = document.getElementById('gSend');
   if (grant) grant.onclick = coinGrant;
+  const recl = document.getElementById('rSend');
+  if (recl) recl.onclick = coinReclaim;
   const amt = document.getElementById('cAmt');
   if (amt) amt.onkeydown = (e) => { if (e.key === 'Enter') coinSend(); };
 
@@ -192,11 +223,12 @@ function coinRender() {
   if (re) re.onclick = async () => { await loadHolders(); coinRender(); };
   const pick = document.getElementById('hTable');
   if (pick) {
-    /* 목록에서 아이디를 누르면 지급칸에 바로 넣어 준다 */
+    /* 목록에서 아이디를 누르면 지급칸과 회수칸에 바로 넣어 준다 */
     pick.onclick = (e) => {
       const tr = e.target.closest('tr[data-name]');
       if (!tr) return;
       COIN.gTo = tr.dataset.name;
+      COIN.rTo = tr.dataset.name;
       coinRender();
       const g = document.getElementById('gAmt');
       if (g) g.focus();

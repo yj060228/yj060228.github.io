@@ -4,7 +4,8 @@ const MP = {
   state: null, hand: [], selected: new Set(),
   sub: null, poll: null, tick: null, busy: false, err: '',
   name: '', codeInput: '',          /* 입력칸 내용. 화면을 다시 그려도 유지되게 */
-  cash: false, stake: 100,          /* 캐시 게임 설정 */
+  cash: false, stake: 100, buyinPts: 100,   /* 캐시 게임 설정 (바이인은 몇 점분인지로) */
+  chatDraft: '', chatSeen: 0,               /* 채팅 입력칸과 마지막으로 그린 개수 */
   owner: null, saved: null,         /* 이 자리가 어느 계정 것인지 */
 };
 const MPCFG = window.THIRTEEN_CONFIG || {};
@@ -104,14 +105,57 @@ function mpRender() {
   const inRoom = !!MP.token && !!MP.state;
   $('mpTablePanel').classList.toggle('hidden', !inRoom || MP.state.status === 'waiting');
   $('mpScorePanel').classList.toggle('hidden', !inRoom);
+  $('mpChatPanel').classList.toggle('hidden', !inRoom);      /* 대기실에서도 대화할 수 있게 */
   $('mpLogPanel').classList.toggle('hidden', !inRoom || MP.state.status === 'waiting');
 
   if (!inRoom) { mpRenderLobby(); return; }
   mpRenderRoom();
   if (MP.state.status !== 'waiting') mpRenderTable();
   mpRenderScore();
+  mpRenderChat();
   $('mpLog').innerHTML = (MP.state.log || []).map((l) => `<div>${esc(l)}</div>`).join('');
   $('mpLog').scrollTop = $('mpLog').scrollHeight;
+}
+
+/* ───────── 대화 ─────────
+ * 입력칸은 index.html 에 고정으로 두고 목록만 다시 그립니다.
+ * 4초마다 새로 받아올 때 입력하던 글이 날아가지 않게 하려고요. */
+function mpRenderChat() {
+  const box = $('mpChat');
+  if (!box) return;
+  const msgs = (MP.state && MP.state.chat) || [];
+  if (msgs.length === MP.chatSeen) return;        /* 바뀐 게 없으면 그대로 둔다 */
+  const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+  MP.chatSeen = msgs.length;
+
+  box.innerHTML = msgs.length
+    ? msgs.map((c) => {
+        const mine = c.id === MP.playerId;
+        const d = new Date(c.t);
+        const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+        return `<div class="cmsg${mine ? ' me' : ''}"><span class="nm">${esc(c.name || '')}</span>`
+             + `${esc(c.text)}<span class="tm">${hm}</span></div>`;
+      }).join('')
+    : '<p class="note">아직 대화가 없어요. 첫 마디를 건네 보세요.</p>';
+
+  if (atBottom || msgs.length <= 1) box.scrollTop = box.scrollHeight;
+}
+
+async function mpChatSend() {
+  const el = $('mpChatInput');
+  const text = (el.value || '').trim();
+  if (!text || !MP.token) return;
+  el.value = ''; MP.chatDraft = '';
+  const note = $('mpChatNote');
+  try {
+    const r = await mpCall('chat', { token: MP.token, text });
+    MP.state = r.state;
+    mpRenderChat();
+  } catch (e) {
+    if (note) note.textContent = e.message;
+    el.value = text; MP.chatDraft = text;        /* 못 보냈으면 적은 글을 돌려준다 */
+    setTimeout(() => { if (note) note.textContent = '최근 50개까지 남아요. 방이 정리되면 같이 사라집니다.'; }, 2500);
+  }
 }
 
 function mpRenderLobby() {
@@ -137,10 +181,12 @@ function mpRenderLobby() {
         <label class="note" for="mpStake">1점당</label>
         <select id="mpStake">${STAKES.map((s) =>
           `<option value="${s}"${s === MP.stake ? ' selected' : ''}>${s.toLocaleString()}코인</option>`).join('')}</select>
-        <span class="note" id="mpBuyin">바이인 ${(MP.stake * 100).toLocaleString()}코인</span>
+        <label class="note" for="mpBuyinSel">바이인</label>
+        <select id="mpBuyinSel">${buyinChoices(MP.stake).map((b) =>
+          `<option value="${b}"${b === mpBuyin() ? ' selected' : ''}>${b.toLocaleString()}코인 (${b / MP.stake}점분)</option>`).join('')}</select>
       </div>
       <p class="note">${canCash()
-        ? '벌점 1점당 고른 금액만큼 참가자끼리 주고받아요. 판을 시작할 때 100점분(바이인)이 잠시 묶이고, 한 판에 잃는 금액은 그 안에서 끝나요.'
+        ? '벌점 1점당 고른 금액만큼 참가자끼리 주고받아요. 판을 시작할 때 바이인이 잠시 묶이고, 한 판에 잃는 금액은 그 안에서 끝납니다. 이 방에 들어오려면 바이인만큼의 코인이 있어야 해요.'
         : '캐시 게임은 로그인해야 쓸 수 있어요.'}</p>
     </div>
     <div class="acct">
@@ -158,7 +204,11 @@ function mpRenderLobby() {
   };
   $('mpStake').onchange = (e) => {
     MP.stake = +e.target.value;
-    $('mpBuyin').textContent = `바이인 ${(MP.stake * 100).toLocaleString()}코인`;
+    MP.buyinPts = MP.buyinPts || 100;         /* 점수 배수는 유지하고 금액만 다시 계산 */
+    mpRenderLobby();
+  };
+  $('mpBuyinSel').onchange = (e) => {
+    MP.buyinPts = Math.round(+e.target.value / MP.stake);
   };
 
   $('mpCreate').onclick = () => {
@@ -167,9 +217,11 @@ function mpRenderLobby() {
     MP.name = name;
     mpDo(async () => {
       if (!name) throw new Error('닉네임을 입력해 주세요.');
+      const cash = MP.cash && canCash();
       mpEnter(await mpCall('create', {
         name, nPlayers: n, noLog: mpNoLog(),
-        stake: MP.cash && canCash() ? MP.stake : 0,
+        stake: cash ? MP.stake : 0,
+        buyin: cash ? mpBuyin() : 0,
       }));
     });
   };
@@ -186,8 +238,17 @@ function mpRenderLobby() {
   $('mpCode').onkeydown = (e) => { if (e.key === 'Enter') $('mpJoin').click(); };
   $('mpName').onkeydown = (e) => { if (e.key === 'Enter') ($('mpCode').value.trim() ? $('mpJoin') : $('mpCreate')).click(); };
 }
-/* 판돈 후보: 100 ~ 10000 코인, 100 단위 */
+/* 판돈 후보: 1점당 100 ~ 10000 코인 */
 const STAKES = [100, 200, 300, 500, 1000, 2000, 3000, 5000, 10000];
+/* 바이인 후보는 '몇 점분인지'로 고릅니다. 서버 제한은 10 ~ 500점분 */
+const BUYIN_PTS = [10, 20, 30, 50, 100, 200, 300, 500];
+const buyinChoices = (stake) => BUYIN_PTS.map((p) => p * stake).filter((b) => b <= 5000000);
+/* 지금 고른 바이인 금액 */
+const mpBuyin = () => {
+  const list = buyinChoices(MP.stake);
+  const want = (MP.buyinPts || 100) * MP.stake;
+  return list.includes(want) ? want : (list[list.length - 1] || MP.stake * 100);
+};
 const canCash = () => !!(ACC.sb && ACC.user);
 /* 내 기록 화면에서 저장을 끄면 이 방의 내 기록도 남기지 않는다 */
 const mpNoLog = () => (typeof myLoggingOn === 'function' ? !myLoggingOn() : false);
@@ -206,8 +267,9 @@ function mpRenderRoom() {
       <button class="btn" id="mpLeave" style="margin-left:auto">방 나가기</button>
     </div>
     <p class="note" id="mpCopyNote">${waiting ? '이 코드나 링크를 친구에게 보내세요.' : `${st.round}번째 판 진행 중`}</p>
-    ${st.stake ? `<p class="note">캐시 게임이에요. 판을 시작하면 ${st.buyin.toLocaleString()}코인이 묶이고,
-       끝나면 벌점 1점당 ${st.stake.toLocaleString()}코인씩 주고받아요.</p>` : ''}
+    ${st.stake ? `<p class="note">캐시 게임이에요. 판을 시작하면 바이인 <b>${st.buyin.toLocaleString()}코인</b>이 묶이고,
+       끝나면 벌점 1점당 <b>${st.stake.toLocaleString()}코인</b>씩 주고받아요.
+       한 판에 잃는 금액은 바이인(${Math.round(st.buyin / st.stake)}점분)까지입니다.</p>` : ''}
     ${st.cash ? `<div class="settle"><div class="slabel">정산</div>${st.cash.rows.map((r) => `
       <div class="drow"><span class="dname">${esc(r.name)}</span>
         <span class="note">${r.points > 0 ? '+' : ''}${r.points}점</span>
@@ -341,6 +403,8 @@ function mpExit() {
   if (MP.sub) { try { MP.sub.unsubscribe(); } catch (_) {} MP.sub = null; }
   MP.code = MP.token = MP.playerId = MP.owner = null;
   MP.state = null; MP.hand = []; MP.seat = null; MP.selected.clear();
+  MP.chatSeen = 0; MP.chatDraft = '';
+  if ($('mpChatInput')) $('mpChatInput').value = '';
   mpSave();
 }
 
@@ -453,6 +517,9 @@ $('mpPlay').onclick = () => mpDo(async () => {
 });
 $('mpPass').onclick = () => mpDo(async () => { await mpCall('pass', { token: MP.token }); await mpRefresh(); });
 $('mpClear').onclick = () => { MP.selected.clear(); mpRender(); };
+$('mpChatSend').onclick = mpChatSend;
+$('mpChatInput').onkeydown = (e) => { if (e.key === 'Enter') mpChatSend(); };
+$('mpChatInput').oninput = (e) => { MP.chatDraft = e.target.value; };
 $('mpAgain').onclick = () => mpDo(async () => { await mpCall('again', { token: MP.token }); await mpRefresh(); });
 
 /* ───────── 시작 ───────── */
