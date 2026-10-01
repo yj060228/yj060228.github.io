@@ -4,6 +4,7 @@ const MP = {
   state: null, hand: [], selected: new Set(),
   sub: null, poll: null, tick: null, busy: false, err: '',
   name: '', codeInput: '',          /* 입력칸 내용. 화면을 다시 그려도 유지되게 */
+  autoName: '',                     /* 로그인한 아이디로 자동으로 채운 닉네임 */
   cash: false, stake: 100, buyinPts: 100,   /* 캐시 게임 설정 (바이인은 몇 점분인지로) */
   chatDraft: '', chatSeen: '',              /* 채팅 입력칸과 마지막으로 그린 목록의 표시 (방 코드·개수·마지막 시각) */
   owner: null, saved: null,         /* 이 자리가 어느 계정 것인지 */
@@ -164,7 +165,7 @@ async function mpChatSend() {
 
 function mpRenderLobby() {
   const pre = new URLSearchParams(location.search).get('room') || '';
-  if (!MP.name) MP.name = (ACC.rec && ACC.rec.username) || '';
+  mpFillName();
   if (!MP.codeInput) MP.codeInput = pre;
   $('mpBody').innerHTML = `
     <p class="note">방을 만들어 링크를 보내거나, 받은 코드로 들어가세요. 로그인하면 전적이 쌓이고, 로그인 없이도 참여할 수 있어요.</p>
@@ -445,8 +446,22 @@ function mpExit() {
 
 /* 로그인한 계정이 바뀌면 남의 자리를 들고 있지 않도록 정리합니다.
  * auth.js 가 화면을 다시 그릴 때마다 불러 줍니다. */
+/* 로그인한 사람은 닉네임 칸을 아이디로 미리 채운다.
+ * 직접 고친 이름은 건드리지 않고, 로그아웃하면 자동으로 넣은 이름만 지운다. */
+function mpFillName() {
+  const uname = (ACC.user && ACC.rec && ACC.rec.username) || '';
+  if (uname && (!MP.name || MP.name === MP.autoName)) { MP.name = uname; MP.autoName = uname; }
+  else if (!uname && MP.autoName) {
+    if (MP.name === MP.autoName) MP.name = '';
+    MP.autoName = '';
+  }
+  const el = $('mpName');
+  if (el && el.value !== MP.name && document.activeElement !== el) el.value = MP.name;
+}
+
 function mpOnAuth() {
   const uid = (ACC.user && ACC.user.id) || null;
+  mpFillName();
 
   if (MP.token) {
     if (MP.owner && MP.owner !== uid) {
