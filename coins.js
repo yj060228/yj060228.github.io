@@ -50,6 +50,7 @@ async function coinLoad(quiet) {
   COIN.busy = false;
   coinChip(); coinRender();
   if (typeof cashUi === 'function') cashUi();     /* 관리자 여부와 잔액이 정해졌으니 캐시 게임 칸도 다시 */
+  if (typeof adminModeCheck === 'function') adminModeCheck();   /* 관리자면 관리자 화면으로 */
 }
 
 /* 관리자만: 코인을 갖고 있는 사람 전체 목록 */
@@ -401,6 +402,7 @@ function coinOnAuth() {
   coinWho = who;
   COIN.balance = null; COIN.locked = 0; COIN.rows = []; COIN.isAdmin = false;
   COIN.err = ''; COIN.msg = '';
+  if (typeof adminModeCheck === 'function') adminModeCheck();   /* 로그아웃하면 관리자 화면을 내린다 */
   if (ACC.sb && ACC.user) coinLoad(true); else { coinChip(); coinRender(); }
 }
 function coinRefresh() { if (ACC.sb && ACC.user) coinLoad(true); }

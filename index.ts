@@ -1290,6 +1290,49 @@ async function adminRooms() {
   });
 }
 
+/* 아이디 이름표: user_id → 아이디 */
+async function nameMap(ids) {
+  const list = [...new Set(ids.filter(Boolean))];
+  if (!list.length) return new Map();
+  const rows = await sel(`/profiles?id=in.(${inList(list)})&select=id,username`).catch(() => []);
+  return new Map(rows.map((r) => [r.id, r.username]));
+}
+
+/* 관리자 화면: 진행 중인 AI 캐시 게임, 최근 코인 거래, 최근 대국 */
+async function adminOverview() {
+  const [ai, ledger, games] = await Promise.all([
+    sel('/ai_games?status=eq.active&select=id,user_id,stake,n_players,locked,state,created_at,updated_at&order=created_at.desc').catch(() => []),
+    sel('/coin_ledger?select=created_at,reason,amount,from_user,to_user,memo&order=id.desc&limit=60').catch(() => []),
+    sel('/game_logs?select=id,created_at,source,n_players,winner_seat,seats,points&order=id.desc&limit=40').catch(() => []),
+  ]);
+  const names = await nameMap(ai.map((g) => g.user_id)
+    .concat(ledger.flatMap((l) => [l.from_user, l.to_user])));
+  return {
+    aiGames: ai.map((g) => {
+      const st = g.state || {};
+      const gm = st.game;
+      return {
+        id: g.id, name: names.get(g.user_id) || st.name || '알 수 없음',
+        stake: g.stake, locked: Number(g.locked), n: g.n_players,
+        moves: (st.moves || []).length,
+        myCards: gm ? popc(gm.hand[0]) : null,
+        aiCards: gm ? gm.hand.slice(1, gm.n).map(popc) : [],
+        started: g.created_at, updated: g.updated_at,
+      };
+    }),
+    ledger: ledger.map((l) => ({
+      at: l.created_at, reason: l.reason, amount: Number(l.amount), memo: l.memo,
+      from: l.from_user ? names.get(l.from_user) || '알 수 없음' : null,
+      to: l.to_user ? names.get(l.to_user) || '알 수 없음' : null,
+    })),
+    games: games.map((g) => ({
+      id: g.id, at: g.created_at, source: g.source, n: g.n_players, winner: g.winner_seat,
+      seats: (g.seats || []).map((x) => ({ seat: x.seat, name: x.name, ai: !!x.ai, guest: !!x.guest })),
+      points: g.points || [],
+    })),
+  };
+}
+
 /* 방 닫기: 하던 판은 무효로 하고, 묶여 있던 코인을 각자에게 돌려준다 */
 async function adminStop(code) {
   const found = await loadRoom(code);
@@ -1556,9 +1599,16 @@ async function handle(body, uid) {
 
   if (typeof action === 'string' && action.startsWith('ai_')) return handleAi(action, body, uid);
 
-  if (action === 'admin_rooms' || action === 'admin_stop') {
+  if (action === 'admin_rooms' || action === 'admin_stop' || action === 'admin_overview' || action === 'admin_game') {
     if (!(await isAdmin(uid))) return fail('권한이 없어요.', 403);
     if (action === 'admin_rooms') return json({ rooms: await adminRooms() });
+    if (action === 'admin_overview') return json(await adminOverview());
+    if (action === 'admin_game') {           /* 복기용: 대국 하나 전체 (관리자는 참가자가 아니어도 볼 수 있다) */
+      const id = parseInt(body.id, 10);
+      const rows = await sel(`/game_logs?id=eq.${id}&select=id,seats,deal,moves,points,winner_seat,n_players,source,created_at`);
+      if (!rows.length) return fail('그런 기록이 없어요.', 404);
+      return json({ game: rows[0] });
+    }
     const code = String(body.code || '').trim().toUpperCase();
     if (!/^[A-Z0-9]{4}$/.test(code)) return fail('방 코드가 올바르지 않아요.');
     return json(await adminStop(code));
