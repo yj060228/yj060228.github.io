@@ -1,5 +1,5 @@
 /* AI 계산 전용 워커 — 화면이 멈추지 않도록 별도 스레드에서 돌립니다. */
-importScripts('engine.js');
+importScripts('engine.js' + self.location.search);   /* 워커와 같은 버전의 엔진 */
 
 let net = null, runner = null;
 
@@ -32,6 +32,8 @@ self.onmessage = (e) => {
       self.postMessage({ id: d.id, ok: true, value: vals[d.seat] * POINT_SCALE });
       return;
     }
+    /* 모르는 요청에도 꼭 대답한다. 대답이 없으면 화면이 영원히 기다린다 */
+    self.postMessage({ id: d.id, ok: false, error: '알 수 없는 요청: ' + d.cmd });
   } catch (err) {
     self.postMessage({ id: d.id, ok: false, error: String((err && err.message) || err) });
   }
