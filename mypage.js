@@ -121,6 +121,16 @@ function myRender() {
   for (const b of box.querySelectorAll('.grow')) {
     b.onclick = () => myOpenDetail(Number(b.dataset.id));
   }
+  /* 복기 창 열기. 내가 앉았던 자리의 수를 먼저 분석한다 */
+  for (const b of box.querySelectorAll('[data-review]')) {
+    b.onclick = () => {
+      const id = Number(b.dataset.review);
+      const mine = MY.games.find((g) => g.game_id === id);
+      if (MY.detail && MY.detail.id === id && typeof rvOpen === 'function') {
+        rvOpen(MY.detail, mine ? mine.seat : 0);
+      }
+    };
+  }
   wireToggle();
 }
 
@@ -146,6 +156,8 @@ function detailHtml(d) {
       ? `<span class="row-cards">${m.c.map((c) => cardHtml(c, 'sm')).join('')}</span>`
       : '<span class="note">패스</span>') + '</div>').join('');
   return `
+    <div class="acct"><button class="btn primary" data-review="${d.id}">복기하기</button>
+      <span class="note">한 수씩 다시 보며 AI 가 어디서 다르게 뒀을지 알려 줘요.</span></div>
     <h4 class="dhead">시작 패 · ${esc(nameOf(d.winner_seat))} 승리</h4>
     ${hands}
     <h4 class="dhead">수순 (${(d.moves || []).length}수)</h4>

@@ -310,6 +310,70 @@ tr.gap td{text-align:center;color:var(--faint);padding:2px 0;letter-spacing:.3em
   .brand h1{font-size:15px}
   #modelChip,.chip.coin{font-size:11px;padding:3px 7px;gap:4px}
 }
+/* ───────── 복기 창 ───────── */
+body.modal-open{overflow:hidden}
+.modal{position:fixed;inset:0;z-index:50;background:rgba(10,12,20,.55);display:flex;align-items:flex-start;justify-content:center;padding:24px 16px;overflow-y:auto}
+.mbox{background:var(--bg);border:1px solid var(--line);border-radius:12px;width:100%;max-width:1180px;padding:14px 16px;display:flex;flex-direction:column;gap:10px;box-shadow:0 12px 40px rgba(0,0,0,.25)}
+.mhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.mhead h2{margin:0;font-size:16px}
+.mhead .btn{margin-left:auto}
+.rvlegend{display:flex;gap:6px;flex-wrap:wrap}
+.rvtop{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.rvsum{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.rvbadge{font-size:12px;padding:3px 9px;border-radius:999px;border:1px solid currentColor;font-weight:600}
+.k-red{--k:#D64545}.k-yellow{--k:#C99400}.k-green{--k:#2E9D5B}.k-sky{--k:#2B9ED6}
+:root[data-theme="dark"] .k-yellow, :root:not([data-theme="light"]) .k-yellow{--k:#E3B341}
+@media (prefers-color-scheme: light){:root:not([data-theme="dark"]) .k-yellow{--k:#B58500}}
+.rvbadge.k-red,.rvbadge.k-yellow,.rvbadge.k-green,.rvbadge.k-sky{color:var(--k);background:color-mix(in srgb,var(--k) 12%,transparent)}
+.rvgrid{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:14px;align-items:start}
+.rvmain{display:flex;flex-direction:column;gap:10px;min-width:0}
+.rvside{display:flex;flex-direction:column;gap:8px;position:sticky;top:0}
+.rvnav{display:flex;gap:6px}.rvnav .btn{flex:1;padding:7px 6px}
+.rvmoves{display:flex;flex-direction:column;gap:3px;max-height:min(70vh,640px);overflow-y:auto;padding-right:2px}
+.rvm{display:flex;align-items:center;gap:7px;text-align:left;background:var(--surface);border:1px solid var(--line-soft);border-left:4px solid var(--line-soft);border-radius:7px;padding:4px 8px;font-size:13px;min-height:34px}
+.rvm .dnum{font-family:var(--font-data);font-size:11px;color:var(--faint);width:20px}
+.rvm .dname{width:58px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rvm .rvk{margin-left:auto;font-size:11px;font-weight:600;color:var(--k,var(--faint));white-space:nowrap}
+.rvm.k-red,.rvm.k-yellow,.rvm.k-green,.rvm.k-sky{border-left-color:var(--k);background:color-mix(in srgb,var(--k) 7%,var(--surface))}
+.rvm.k-other,.rvm.k-forced{opacity:.7}
+.rvm.on{outline:2px solid var(--accent);outline-offset:-1px}
+.mbox .card.sm{width:28px;height:39px}.mbox .card.sm .rk{font-size:12px}.mbox .card.sm .st{font-size:11px}
+.mbox .rvm .card.sm,.mbox .rvrow .card.sm{width:22px;height:30px}
+.mbox .rvm .card.sm .rk,.mbox .rvrow .card.sm .rk{font-size:10px}
+.mbox .rvm .card.sm .st,.mbox .rvrow .card.sm .st{font-size:9px}
+.rvboard{display:flex;flex-direction:column;gap:6px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:10px 12px}
+.rvpile{display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding-bottom:6px;border-bottom:1px dashed var(--line)}
+.rvpile .lbl{font-size:11px;color:var(--faint);width:28px}
+.rvseat{display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:4px 6px;border-radius:7px}
+.rvseat.turn{background:var(--accent-soft)}
+.rvwho{display:flex;flex-direction:column;width:82px;font-size:13px;line-height:1.3}
+.rvseat .row-cards{justify-content:flex-start;gap:3px}
+.rvseat .card.sel{outline:2px solid var(--accent);transform:translateY(-3px)}
+.rvplay{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.rvverdict{border:1px solid var(--k,var(--line));border-left-width:5px;border-radius:8px;padding:9px 12px;font-size:14px;background:color-mix(in srgb,var(--k,transparent) 9%,var(--surface))}
+.rvverdict b:first-child{color:var(--k,var(--ink));margin-right:6px}
+.rvtable{display:flex;flex-direction:column;gap:4px}
+.rvrow{display:grid;grid-template-columns:78px minmax(0,1fr) 110px 64px auto;align-items:center;gap:8px;font-size:13px;padding:4px 8px;border-radius:7px;background:var(--surface);border:1px solid var(--line-soft)}
+.rvrow.rvhead{background:transparent;border:none;font-size:11px;color:var(--faint);padding-top:0;padding-bottom:0}
+.rvrow.mine{border-color:var(--accent);background:var(--accent-soft)}
+.rvrow .row-cards{justify-content:flex-start;gap:3px}
+.rvtag{font-size:11px;color:var(--accent);font-weight:600}
+.rvbar{height:6px;border-radius:3px;background:var(--surface-2);overflow:hidden}
+.rvbar i{display:block;height:100%;background:var(--accent)}
+.rvval{font-family:var(--font-data);text-align:right;font-weight:600}
+@media (max-width:860px){
+  .modal{padding:0}
+  .mbox{border-radius:0;min-height:100%;max-width:none}
+  .rvgrid{grid-template-columns:1fr}
+  .rvside{position:static}
+  .rvmoves{max-height:46vh}
+  .mbox{padding-bottom:64px}
+  .rvnav{position:fixed;left:0;right:0;bottom:0;z-index:2;background:var(--bg);border-top:1px solid var(--line);padding:8px 12px}
+  .rvwho{flex-direction:row;gap:6px;width:auto;flex:1 1 100%}
+  .rvrow{grid-template-columns:60px minmax(0,1fr) 54px auto;gap:6px}
+  .rvrow .rvbar{display:none}
+  .rvrow.rvhead span:nth-child(3){display:none}
+}
 @media (prefers-reduced-motion: reduce){*{transition:none!important}}
 </style>
 </head>
@@ -517,6 +581,21 @@ tr.gap td{text-align:center;color:var(--faint);padding:2px 0;letter-spacing:.3em
   <p class="note" id="footNote">족보는 싱글·페어·트리플·스트레이트·플러쉬·풀하우스·포카드·스트레이트플러쉬이고, 5장 족보끼리는 스트레이트플러쉬 &gt; 포카드 &gt; 풀하우스 &gt; 플러쉬 &gt; 스트레이트 순이에요. 2가 가장 높고, 무늬는 ♠ &gt; ♦ &gt; ♥ &gt; ♣ 순이에요. 스트레이트는 A-2-3-4-5가 가장 높고 3-4-5-6-7이 가장 낮으며, J-Q-K-A-2처럼 2를 넘어 이어지는 건 인정되지 않아요.</p>
 </div>
 
+<!-- 복기 창 -->
+<div class="modal" id="reviewModal" hidden>
+  <div class="mbox" role="dialog" aria-modal="true" aria-labelledby="rvTitle">
+    <div class="mhead">
+      <h2 id="rvTitle">복기</h2>
+      <span class="rvlegend">
+        <span class="rvbadge k-red">치명적 실수</span><span class="rvbadge k-yellow">아쉬운 수</span>
+        <span class="rvbadge k-green">좋은 수</span><span class="rvbadge k-sky">훌륭한 수</span>
+      </span>
+      <button class="btn" id="rvClose">닫기</button>
+    </div>
+    <div id="rvBody"></div>
+  </div>
+</div>
+
 <script src="config.js"></script>
 <script src="engine.js"></script>
 <script src="auth.js"></script>
@@ -525,5 +604,6 @@ tr.gap td{text-align:center;color:var(--faint);padding:2px 0;letter-spacing:.3em
 <script src="rules.js"></script>
 <script src="mypage.js"></script>
 <script src="coins.js"></script>
+<script src="review.js"></script>
 </body>
 </html>

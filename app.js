@@ -30,6 +30,8 @@ function ask(msg) {
                              : ismctsPlain(msg.state, msg.iters);
         const total = r.stats.reduce((a, s) => a + s.visits, 0) || 1;
         res({ move: r.move, stats: r.stats.slice(0, 4).map(s => ({ move: s.move, share: s.visits / total })) });
+      } else if (msg.cmd === 'analyze') {
+        res(analyzePosition(msg, mainRunner));
       } else if (msg.cmd === 'value') {
         if (!mainRunner) return res({ value: null });
         const vals = new Float32Array(msg.state.n);

@@ -572,8 +572,12 @@ function randomPlayout(s) {
   }
 }
 
+/* 탐색 옵션 (복기에서 씀)
+ *   open     : 상대 패를 다시 섞지 않고 실제 패 그대로 탐색 (모든 패를 아는 상태)
+ *   focus    : 이 수(move.id)는 뿌리에서 최소 focusMin 번은 둬 보게 해서 값을 꼭 구한다 */
+
 /* 신경망 없음: UCB + avails */
-function ismctsPlain(rootState, iters, c = 0.7) {
+function ismctsPlain(rootState, iters, c = 0.7, opts = {}) {
   const me = rootState.turn;
   const rootMoves = legalMoves(rootState);
   if (rootMoves.length === 1) return { move: rootMoves[0], stats: [{ move: rootMoves[0], visits: iters }] };
@@ -581,7 +585,7 @@ function ismctsPlain(rootState, iters, c = 0.7) {
   const root = { children: new Map(), visits: 0 };
   for (let it = 0; it < iters; it++) {
     const st = cloneState(rootState);
-    determinize(st, me);
+    if (!opts.open) determinize(st, me);
     let node = root;
     const path = [];
 
@@ -606,6 +610,10 @@ function ismctsPlain(rootState, iters, c = 0.7) {
         const v = ch.wins / ch.visits + c * Math.sqrt(Math.log(ch.avails) / ch.visits);
         if (v > bestv) { bestv = v; best = ch; }
       }
+      if (node === root && opts.focus !== undefined) {
+        const fc = node.children.get(opts.focus);
+        if (fc && fc.visits < (opts.focusMin || 0)) best = fc;
+      }
       doMove(st, best.move);
       path.push(best);
       node = best;
@@ -619,7 +627,7 @@ function ismctsPlain(rootState, iters, c = 0.7) {
 }
 
 /* 신경망: PUCT + 가치망/롤아웃 혼합 */
-function ismctsNN(rootState, iters, runner, blend = 1.0, cpuct = 1.5) {
+function ismctsNN(rootState, iters, runner, blend = 1.0, cpuct = 1.5, opts = {}) {
   const me = rootState.turn;
   const rootMoves = legalMoves(rootState);
   if (rootMoves.length === 1) return { move: rootMoves[0], stats: [{ move: rootMoves[0], visits: iters }] };
@@ -634,7 +642,7 @@ function ismctsNN(rootState, iters, runner, blend = 1.0, cpuct = 1.5) {
 
   for (let it = 0; it < iters; it++) {
     const st = cloneState(rootState);
-    determinize(st, me);
+    if (!opts.open) determinize(st, me);
     let node = root;
     const path = [];
     let done = false;
@@ -662,6 +670,11 @@ function ismctsNN(rootState, iters, runner, blend = 1.0, cpuct = 1.5) {
         const prior = node.priors.get(ms[i].id) ?? 1 / ms.length;
         const v = q + cpuct * prior * sq / (1 + nvis);
         if (v > bestv) { bestv = v; bestIdx = i; }
+      }
+      if (node === root && opts.focus !== undefined) {
+        const fc = node.children.get(opts.focus);
+        const fi = ms.findIndex((x) => x.id === opts.focus);
+        if (fi >= 0 && (!fc || fc.visits < (opts.focusMin || 0))) bestIdx = fi;
       }
       const m = ms[bestIdx];
       const existing = node.children.get(m.id);
@@ -705,6 +718,25 @@ function finish(root, rootMoves) {
   return { move: stats[0].move, stats };
 }
 
+/* ───────── 복기: 한 국면 분석 ─────────
+ * 이 국면에서 둘 수 있는 모든 수를 탐색해서, 수마다 기대 점수(점)와 AI 가 검토한 비율을 돌려준다.
+ *   open  : true 면 모든 패를 아는 상태로 탐색 (훌륭한 수 판정용)
+ *   focus : 실제로 둔 수. 탐색이 외면해도 값은 구할 수 있게 일정 횟수는 꼭 둬 본다 */
+function analyzePosition(d, runner) {
+  const opts = { open: !!d.open, focus: d.focus, focusMin: Math.max(20, Math.round(d.iters * 0.05)) };
+  const r = runner
+    ? ismctsNN(d.state, d.iters, runner, d.blend === undefined ? 1 : d.blend, 1.5, opts)
+    : ismctsPlain(d.state, d.iters, 0.7, opts);
+  const total = r.stats.reduce((a, x) => a + x.visits, 0) || 1;
+  return {
+    best: r.move.id,
+    stats: r.stats.map((x) => ({
+      move: x.move, visits: x.visits, share: x.visits / total,
+      value: x.q === null || x.q === undefined ? null : x.q * POINT_SCALE,
+    })),
+  };
+}
+
 if (typeof module !== 'undefined') {
   module.exports = {
     RANK_STR, SUIT_CHR, SUIT_SYM, TYPE_NAME, PASS, SINGLE, PAIR, TRIPLE,
@@ -715,6 +747,6 @@ if (typeof module !== 'undefined') {
     penalty, finalPoints, result, determinize, ttapActive, straightStrength,
     nobodyCanBeat, autoPassRound, PASS_MOVE,
     stateFeatures, moveFeatures, makeRec, parseWeights, NetRunner,
-    ismctsPlain, ismctsNN, STATE_FEAT, MOVE_FEAT, POINT_SCALE,
+    ismctsPlain, ismctsNN, analyzePosition, STATE_FEAT, MOVE_FEAT, POINT_SCALE,
   };
 }
