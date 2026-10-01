@@ -243,19 +243,25 @@ tr.gap td{text-align:center;color:var(--faint);padding:2px 0;letter-spacing:.3em
 [hidden]{display:none!important}
 .hidden{display:none!important}
 @media (max-width:560px){
-  /* 위 막대: 1줄 제목 + 모델, 2줄 코인, 3줄 메뉴 버튼 다섯 개를 같은 너비로 */
-  .bar{gap:8px 8px}
-  .brand{flex:1 1 auto;min-width:0}
+  /* 위 막대: 윗줄에 제목 · 모델 · 코인, 아랫줄에 메뉴 버튼 다섯 개를 같은 너비로 */
+  .bar{gap:8px 6px}
+  .brand{flex:0 0 auto;margin-right:auto}
   .brand h1{white-space:nowrap}
   .brand .sub{display:none}            /* 모델 칩과 겹치는 정보라 좁은 화면에서는 뺀다 */
-  #modelChip{flex:0 1 auto;min-width:0;max-width:60%;overflow:hidden}
-  #modelLabel{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .chip.coin{order:1}
-  .menu{order:2;display:grid;grid-template-columns:repeat(5,1fr);gap:6px;flex:1 1 100%}
+  #modelChip,.chip.coin{flex:0 1 auto;min-width:0;overflow:hidden;padding:4px 8px}
+  #modelLabel,.chip.coin b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .chip.coin .clock{display:none}      /* 묶인 금액은 코인 화면과 방 화면에서 본다 */
+  .menu{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;flex:1 1 100%;margin-left:0}
   .menu .btn{padding:9px 0;font-size:13px;text-align:center;white-space:nowrap}
   .seats{grid-template-columns:1fr 1fr}
   .card{width:40px;height:56px}.card .rk{font-size:14px}.card .st{font-size:13px}
   .hand{gap:4px;min-height:56px}
+}
+@media (max-width:350px){
+  /* 아주 좁은 화면에서도 제목 · 모델 · 코인이 한 줄에 들어가게 조금 줄인다 */
+  .bar{column-gap:4px}
+  .brand h1{font-size:15px}
+  #modelChip,.chip.coin{font-size:11px;padding:3px 7px;gap:4px}
 }
 @media (prefers-reduced-motion: reduce){*{transition:none!important}}
 </style>
