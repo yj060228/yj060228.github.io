@@ -21,6 +21,10 @@ self.onmessage = (e) => {
         stats: r.stats.slice(0, 4).map((s) => ({ move: s.move, share: s.visits / total })) });
       return;
     }
+    if (d.cmd === 'analyze') {
+      self.postMessage({ id: d.id, ok: true, ...analyzePosition(d, runner) });
+      return;
+    }
     if (d.cmd === 'value') {
       if (!runner) { self.postMessage({ id: d.id, ok: true, value: null }); return; }
       const vals = new Float32Array(d.state.n);
