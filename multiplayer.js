@@ -396,6 +396,7 @@ function mpRenderScore() {
   const st = MP.state;
   const rows = st.players.slice().sort((a, b) => (st.totals[b.id] || 0) - (st.totals[a.id] || 0));
   const cash = !!st.stake;
+  if ($('mpScoreTitle')) $('mpScoreTitle').textContent = cash ? '점수 · 바이인 현황' : '방 점수';
   $('mpScore').innerHTML = '<tr><th style="text-align:left">이름</th><th>누적</th>'
     + (cash ? '<th>남은 바이인</th>' : '') + '<th>남은 장수</th></tr>'
     + rows.map((p) => {
@@ -531,8 +532,8 @@ function mpSubscribe() {
 
 /* ───────── 탭 ───────── */
 const TABS = {
-  solo: { btn: 'tabSolo', views: ['viewSolo', 'viewSolo2'] },
-  mp:   { btn: 'tabMp',   views: ['viewMp'] },
+  solo: { btn: 'tabSolo', views: ['viewSolo', 'viewSolo2', 'viewSoloRight'] },
+  mp:   { btn: 'tabMp',   views: ['viewMp', 'viewMpLeft', 'viewMpRight'] },
 };
 function showTab(which) {
   if (!TABS[which]) which = 'solo';

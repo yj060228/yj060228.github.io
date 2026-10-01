@@ -253,6 +253,29 @@ tr.gap td{text-align:center;color:var(--faint);padding:2px 0;letter-spacing:.3em
 .faint{color:var(--faint)}
 [hidden]{display:none!important}
 .hidden{display:none!important}
+/* ───────── 화면 배치 ─────────
+ * 좁은 화면: 모든 판을 한 줄로 쌓는다. 순서는 order 로 정한다.
+ * 넓은 화면(1180px 이상): 왼쪽 리더보드 · 대화 / 가운데 게임 / 오른쪽 점수 · 바이인 · 진행 */
+#viewSolo,#viewSolo2,#viewMp,#viewCoins,#viewMy{display:flex;flex-direction:column;gap:12px}
+.layout,.layout>.side,.layout>.center,#viewSoloRight,#viewMpRight,#viewMpLeft{display:contents}
+.center>*{order:1}
+#soloScorePanel,#mpScorePanel{order:2}
+#mpChatPanel{order:3}
+#soloLogPanel,#mpLogPanel{order:4}
+#lbPanel{order:5}
+#footNote{order:6}
+@media (min-width:1180px){
+  .wrap{max-width:1480px}
+  .layout{display:grid;grid-template-columns:300px minmax(0,1fr) 320px;gap:16px;align-items:start}
+  .layout>.side,.layout>.center{display:flex;flex-direction:column;gap:12px;min-width:0}
+  .layout>.side{position:sticky;top:12px;max-height:calc(100vh - 24px);overflow-y:auto;scrollbar-width:thin}
+  #viewSoloRight,#viewMpRight,#viewMpLeft{display:flex;flex-direction:column;gap:12px}
+  #viewSoloRight[hidden],#viewMpRight[hidden],#viewMpLeft[hidden]{display:none}
+  #lbPanel,#soloScorePanel,#mpScorePanel,#mpChatPanel,#soloLogPanel,#mpLogPanel{order:0}
+  .side .log{max-height:min(58vh,620px)}
+  .side .chat{height:min(46vh,440px)}
+  .side .panel h2{font-size:14px}
+}
 @media (max-width:560px){
   /* 위 막대: 윗줄에 제목 · 모델 · 코인, 아랫줄에 메뉴 버튼 다섯 개를 같은 너비로 */
   .bar{gap:8px 6px}
@@ -296,145 +319,20 @@ tr.gap td{text-align:center;color:var(--faint);padding:2px 0;letter-spacing:.3em
     </div>
   </div>
 
-  <div class="tabs" role="tablist">
-    <button id="tabSolo" role="tab" aria-selected="true">AI 연습</button>
-    <button id="tabMp" role="tab" aria-selected="false">친구와 대전</button>
-  </div>
-
-  <div id="viewRules" hidden></div>
-
-  <div id="viewCoins" hidden>
-    <div class="panel">
-      <h2 class="row">코인<button class="btn" id="coinsClose" style="margin-left:auto">닫기</button></h2>
-      <div id="coinBody"></div>
+  <div class="layout">
+  <!-- 넓은 화면: 왼쪽 리더보드 · 대화 / 가운데 게임 / 오른쪽 점수 · 진행. 좁은 화면에서는 한 줄로 쌓인다 -->
+  <aside class="side left">
+    <div class="panel" id="lbPanel">
+      <h2 class="row">리더보드
+        <span class="seg" id="lbMode">
+          <button data-mode="solo" aria-selected="true">AI 전적</button>
+          <button data-mode="mp" aria-selected="false">멀티 전적</button>
+        </span>
+      </h2>
+      <table class="score" id="lbTable"></table>
+      <p class="note" id="lbNote"></p>
     </div>
-  </div>
-
-  <div id="viewMy" hidden>
-    <div class="panel">
-      <h2 class="row">내 기록<button class="btn" id="myClose" style="margin-left:auto">닫기</button></h2>
-      <div id="myBody"></div>
-    </div>
-  </div>
-
-  <div id="viewSolo">
-
-  <div class="panel hidden" id="settings">
-    <h2>설정</h2>
-    <div class="field">
-      <label for="selPlayers">인원</label>
-      <select id="selPlayers"><option value="2">2인</option><option value="3">3인</option><option value="4" selected>4인</option></select>
-      <span class="note">바꾸면 다음 게임부터 적용돼요</span>
-    </div>
-    <div class="field">
-      <label for="rngIters">탐색 횟수</label>
-      <input type="range" id="rngIters" min="100" max="2000" step="100" value="600">
-      <span class="val" id="valIters">600</span>
-    </div>
-    <div class="field">
-      <label for="rngBlend">평가 방식</label>
-      <input type="range" id="rngBlend" min="0" max="100" step="10" value="50">
-      <span class="val" id="valBlend">반반</span>
-    </div>
-    <p class="note">평가 방식은 새 국면의 점수를 어떻게 매길지 정해요. 왼쪽 끝은 끝까지 무작위로 둬 보고(롤아웃), 오른쪽 끝은 가치망 예측만 써요. 모델을 올리지 않으면 이 값은 쓰이지 않아요.</p>
-    <div class="field">
-      <label>내 모델</label>
-      <button class="btn" id="btnLoad">weights.bin 올리기</button>
-      <button class="btn hidden" id="btnClear">제거</button>
-      <input type="file" id="fileModel" accept=".bin" class="hidden">
-    </div>
-    <p class="note" id="modelNote">학습한 <code>weights.bin</code>을 올리면 그 신경망이 AI를 이끌어요. 파일은 이 브라우저에만 저장되고 어디로도 전송되지 않아요. 언제든 다시 올려서 교체할 수 있어요.</p>
-  </div>
-
-
-  </div>
-
-  <div class="panel" id="account">
-    <h2>플레이어</h2>
-    <div id="accountBody"><p class="note">계정을 확인하는 중…</p></div>
-  </div>
-
-  <div class="banner hidden" id="banner"></div>
-
-  <div id="viewSolo2">
-  <div class="table">
-    <div class="seats" id="seats"></div>
-
-    <div class="pile" id="pile">
-      <div class="lbl" id="pileLabel">바닥</div>
-      <div class="row-cards" id="pileCards"></div>
-      <div class="meta" id="pileMeta">선이 첫 수를 냅니다</div>
-    </div>
-
-    <div class="mine">
-      <div class="mine-head">
-        <strong>내 패</strong>
-        <span class="cnt" id="myCount"></span>
-        <span class="verdict" id="verdict">카드를 골라 주세요</span>
-        <span class="chip hidden" id="evalChip" title="가치망이 예측한 이 판의 최종 점수"></span>
-      </div>
-      <div class="hand" id="hand"></div>
-      <div class="actions">
-        <button class="btn primary" id="btnPlay" disabled>내기</button>
-        <button class="btn" id="btnPass" disabled>패스</button>
-        <button class="btn" id="btnHint">힌트</button>
-        <button class="btn" id="btnClearSel">선택 해제</button>
-      </div>
-    </div>
-  </div>
-
-  <div class="panel hidden" id="hintPanel">
-    <h2>AI 추천</h2>
-    <div class="hintlist" id="hintList"></div>
-    <p class="note">막대는 AI가 그 수를 얼마나 많이 검토했는지예요. 길수록 AI가 선호하는 수예요.</p>
-  </div>
-
-  <div class="panel">
-    <h2>이번 자리</h2>
-    <table class="score" id="scoreTable"></table>
-  </div>
-
-  <div class="panel">
-    <h2>진행</h2>
-    <div class="log" id="log"></div>
-  </div>
-
-  </div>
-
-  <div id="viewMp" hidden>
-    <div class="panel" id="mpPanel">
-      <h2>친구와 대전</h2>
-      <div id="mpBody"><p class="note">준비 중…</p></div>
-    </div>
-    <div class="panel hidden" id="mpTablePanel">
-      <div class="table">
-        <div class="plist" id="mpSeats"></div>
-        <div class="pile" id="mpPile">
-          <div class="lbl" id="mpPileLabel">바닥</div>
-          <div class="row-cards" id="mpPileCards"></div>
-          <div class="meta" id="mpPileMeta"></div>
-        </div>
-        <div class="mine">
-          <div class="mine-head">
-            <strong>내 패</strong>
-            <span class="cnt" id="mpMyCount"></span>
-            <span class="verdict" id="mpVerdict">기다리는 중</span>
-            <span class="timer" id="mpTimer"></span>
-          </div>
-          <div class="hand" id="mpHand"></div>
-          <div class="actions">
-            <button class="btn primary" id="mpPlay" disabled>내기</button>
-            <button class="btn" id="mpPass" disabled>패스</button>
-            <button class="btn" id="mpClear">선택 해제</button>
-            <button class="btn hidden" id="mpAgain">한 판 더</button>
-          </div>
-        </div>
-      </div>
-    </div>
-    <div class="panel hidden" id="mpScorePanel">
-      <h2>방 점수</h2>
-      <table class="score" id="mpScore"></table>
-    </div>
+    <div id="viewMpLeft" hidden>
     <div class="panel hidden" id="mpChatPanel">
       <h2>대화</h2>
       <div class="chat" id="mpChat"></div>
@@ -444,22 +342,161 @@ tr.gap td{text-align:center;color:var(--faint);padding:2px 0;letter-spacing:.3em
       </div>
       <p class="note" id="mpChatNote">최근 50개까지 남아요. 방이 정리되면 같이 사라집니다.</p>
     </div>
+    </div>
+  </aside>
 
+  <main class="center">
+    <div class="tabs" role="tablist">
+      <button id="tabSolo" role="tab" aria-selected="true">AI 연습</button>
+      <button id="tabMp" role="tab" aria-selected="false">친구와 대전</button>
+    </div>
+
+    <div id="viewRules" hidden></div>
+
+    <div id="viewCoins" hidden>
+      <div class="panel">
+        <h2 class="row">코인<button class="btn" id="coinsClose" style="margin-left:auto">닫기</button></h2>
+        <div id="coinBody"></div>
+      </div>
+    </div>
+
+    <div id="viewMy" hidden>
+      <div class="panel">
+        <h2 class="row">내 기록<button class="btn" id="myClose" style="margin-left:auto">닫기</button></h2>
+        <div id="myBody"></div>
+      </div>
+    </div>
+
+    <div id="viewSolo">
+
+    <div class="panel hidden" id="settings">
+      <h2>설정</h2>
+      <div class="field">
+        <label for="selPlayers">인원</label>
+        <select id="selPlayers"><option value="2">2인</option><option value="3">3인</option><option value="4" selected>4인</option></select>
+        <span class="note">바꾸면 다음 게임부터 적용돼요</span>
+      </div>
+      <div class="field">
+        <label for="rngIters">탐색 횟수</label>
+        <input type="range" id="rngIters" min="100" max="2000" step="100" value="600">
+        <span class="val" id="valIters">600</span>
+      </div>
+      <div class="field">
+        <label for="rngBlend">평가 방식</label>
+        <input type="range" id="rngBlend" min="0" max="100" step="10" value="50">
+        <span class="val" id="valBlend">반반</span>
+      </div>
+      <p class="note">평가 방식은 새 국면의 점수를 어떻게 매길지 정해요. 왼쪽 끝은 끝까지 무작위로 둬 보고(롤아웃), 오른쪽 끝은 가치망 예측만 써요. 모델을 올리지 않으면 이 값은 쓰이지 않아요.</p>
+      <div class="field">
+        <label>내 모델</label>
+        <button class="btn" id="btnLoad">weights.bin 올리기</button>
+        <button class="btn hidden" id="btnClear">제거</button>
+        <input type="file" id="fileModel" accept=".bin" class="hidden">
+      </div>
+      <p class="note" id="modelNote">학습한 <code>weights.bin</code>을 올리면 그 신경망이 AI를 이끌어요. 파일은 이 브라우저에만 저장되고 어디로도 전송되지 않아요. 언제든 다시 올려서 교체할 수 있어요.</p>
+    </div>
+
+
+    </div>
+
+    <div class="panel" id="account">
+      <h2>플레이어</h2>
+      <div id="accountBody"><p class="note">계정을 확인하는 중…</p></div>
+    </div>
+
+    <div class="banner hidden" id="banner"></div>
+
+    <div id="viewSolo2">
+    <div class="table">
+      <div class="seats" id="seats"></div>
+
+      <div class="pile" id="pile">
+        <div class="lbl" id="pileLabel">바닥</div>
+        <div class="row-cards" id="pileCards"></div>
+        <div class="meta" id="pileMeta">선이 첫 수를 냅니다</div>
+      </div>
+
+      <div class="mine">
+        <div class="mine-head">
+          <strong>내 패</strong>
+          <span class="cnt" id="myCount"></span>
+          <span class="verdict" id="verdict">카드를 골라 주세요</span>
+          <span class="chip hidden" id="evalChip" title="가치망이 예측한 이 판의 최종 점수"></span>
+        </div>
+        <div class="hand" id="hand"></div>
+        <div class="actions">
+          <button class="btn primary" id="btnPlay" disabled>내기</button>
+          <button class="btn" id="btnPass" disabled>패스</button>
+          <button class="btn" id="btnHint">힌트</button>
+          <button class="btn" id="btnClearSel">선택 해제</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel hidden" id="hintPanel">
+      <h2>AI 추천</h2>
+      <div class="hintlist" id="hintList"></div>
+      <p class="note">막대는 AI가 그 수를 얼마나 많이 검토했는지예요. 길수록 AI가 선호하는 수예요.</p>
+    </div>
+
+    </div>
+
+    <div id="viewMp" hidden>
+      <div class="panel" id="mpPanel">
+        <h2>친구와 대전</h2>
+        <div id="mpBody"><p class="note">준비 중…</p></div>
+      </div>
+      <div class="panel hidden" id="mpTablePanel">
+        <div class="table">
+          <div class="plist" id="mpSeats"></div>
+          <div class="pile" id="mpPile">
+            <div class="lbl" id="mpPileLabel">바닥</div>
+            <div class="row-cards" id="mpPileCards"></div>
+            <div class="meta" id="mpPileMeta"></div>
+          </div>
+          <div class="mine">
+            <div class="mine-head">
+              <strong>내 패</strong>
+              <span class="cnt" id="mpMyCount"></span>
+              <span class="verdict" id="mpVerdict">기다리는 중</span>
+              <span class="timer" id="mpTimer"></span>
+            </div>
+            <div class="hand" id="mpHand"></div>
+            <div class="actions">
+              <button class="btn primary" id="mpPlay" disabled>내기</button>
+              <button class="btn" id="mpPass" disabled>패스</button>
+              <button class="btn" id="mpClear">선택 해제</button>
+              <button class="btn hidden" id="mpAgain">한 판 더</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <aside class="side right">
+    <div id="viewSoloRight">
+    <div class="panel" id="soloScorePanel">
+      <h2>이번 자리</h2>
+      <table class="score" id="scoreTable"></table>
+    </div>
+    <div class="panel" id="soloLogPanel">
+      <h2>진행</h2>
+      <div class="log" id="log"></div>
+    </div>
+    </div>
+    <div id="viewMpRight" hidden>
+    <div class="panel hidden" id="mpScorePanel">
+      <h2 id="mpScoreTitle">방 점수</h2>
+      <table class="score" id="mpScore"></table>
+    </div>
     <div class="panel hidden" id="mpLogPanel">
       <h2>진행</h2>
       <div class="log" id="mpLog"></div>
     </div>
-  </div>
-
-  <div class="panel" id="lbPanel">
-    <h2 class="row">리더보드
-      <span class="seg" id="lbMode">
-        <button data-mode="solo" aria-selected="true">AI 전적</button>
-        <button data-mode="mp" aria-selected="false">멀티 전적</button>
-      </span>
-    </h2>
-    <table class="score" id="lbTable"></table>
-    <p class="note" id="lbNote"></p>
+    </div>
+  </aside>
   </div>
 
   <p class="note" id="footNote">족보는 싱글·페어·트리플·스트레이트·플러쉬·풀하우스·포카드·스트레이트플러쉬이고, 5장 족보끼리는 스트레이트플러쉬 &gt; 포카드 &gt; 풀하우스 &gt; 플러쉬 &gt; 스트레이트 순이에요. 2가 가장 높고, 무늬는 ♠ &gt; ♦ &gt; ♥ &gt; ♣ 순이에요. 스트레이트는 A-2-3-4-5가 가장 높고 3-4-5-6-7이 가장 낮으며, J-Q-K-A-2처럼 2를 넘어 이어지는 건 인정되지 않아요.</p>
