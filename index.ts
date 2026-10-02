@@ -1300,6 +1300,7 @@ async function nameMap(ids) {
 
 /* 관리자 화면: 진행 중인 AI 캐시 게임, 최근 코인 거래, 최근 대국 */
 async function adminOverview() {
+  await rpc('weekly_payout', {}).catch(() => {});      /* 지난 주 상금이 밀려 있으면 지금 준다 */
   const [ai, ledger, games] = await Promise.all([
     sel('/ai_games?status=eq.active&select=id,user_id,stake,n_players,locked,state,created_at,updated_at&order=created_at.desc').catch(() => []),
     sel('/coin_ledger?select=created_at,reason,amount,from_user,to_user,memo&order=id.desc&limit=60').catch(() => []),
@@ -1466,6 +1467,7 @@ async function aiFinish(row, st, uid) {
   const pts = finalPoints(g);
   const res = await rpc('ai_cash_close', { p_id: row.id, p_delta: pts[0] * row.stake, p_forfeit: false });
   const r = (res && res[0]) || {};
+  await recordWin(uid, 'cash', g);
   if (!st.noLog) {
     await saveLog({
       source: 'solo', nPlayers: g.n, winnerSeat: g.winner,
@@ -1484,6 +1486,158 @@ async function aiCashEnabled() {
     const rows = await sel('/app_settings?key=eq.ai_cash&select=value');
     return !rows.length || rows[0].value.enabled !== false;
   } catch (_) { return true; }
+}
+
+/* ═══════════════ 주간 대회 · 승리 순위 ═══════════════
+ * 대회: 참가비를 내고 AI 와 4인전 3판, 점수 합으로 순위. 판은 AI 캐시 게임과 똑같이 서버가 둔다.
+ * 승리 순위: 서버가 AI 를 맡은 판(AI 캐시 게임 · 대회)에서 이긴 횟수.
+ * 상금은 tour.sql 의 weekly_payout 이 준다 (pg_cron, 또는 여기서 첫 접속 때). */
+const TOUR_FEE = 50000;
+const TOUR_GAMES = 3;
+const TOUR_PLAYERS = 4;
+const TOUR_PRIZES = [1000000, 600000, 300000, 100000];
+const WIN_PRIZE = 2000000;
+
+/* 한국 시간으로 그 주의 월요일 (tour.sql 의 kst_week 와 같게) */
+function kstWeek(d = new Date()) {
+  const k = new Date(d.getTime() + 9 * 3600 * 1000);
+  k.setUTCDate(k.getUTCDate() - ((k.getUTCDay() + 6) % 7));
+  return k.toISOString().slice(0, 10);
+}
+const weekShift = (w, days) => {
+  const d = new Date(w + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+};
+/* 다음 지급 시각: 다음 주 월요일 0시 (한국) */
+const nextPayoutAt = (w) => new Date(Date.parse(weekShift(w, 7) + 'T00:00:00+09:00')).toISOString();
+
+/* 서버가 둔 판이 끝나면 승리 순위에 남긴다 */
+async function recordWin(uid, kind, g) {
+  try {
+    await ins('server_wins', { user_id: uid, week: kstWeek(), kind, won: g.winner === 0, points: finalPoints(g)[0] });
+  } catch (_) { /* tour.sql 을 아직 실행하지 않았으면 조용히 넘어간다 */ }
+}
+
+async function tourLoad(uid) {
+  const rows = await sel(`/tour_runs?user_id=eq.${uid}&week=eq.${kstWeek()}&select=*`);
+  return rows[0] || null;
+}
+async function tourSave(run, patch) {
+  const out = await upd(`/tour_runs?id=eq.${run.id}&version=eq.${run.version}`, { ...patch, version: run.version + 1 });
+  if (!out || !out.length) throw new Error('다른 창에서 이미 진행했어요. 새로고침해 주세요.');
+  Object.assign(run, out[0]);
+}
+const tourMe = (run) => run && {
+  id: run.id, status: run.status, gamesDone: run.games_done, total: run.total, results: run.results || [],
+  inGame: !!(run.state && run.state.game && run.state.game.winner < 0),
+};
+const tourDeal = async (uid) => {
+  seedRng(randomSeed());
+  const g = initState(TOUR_PLAYERS);
+  const prof = await sel(`/profiles?id=eq.${uid}&select=username`).catch(() => []);
+  return { game: g, deal: g.hand.slice(0, TOUR_PLAYERS).map(cardsOf), moves: [], name: (prof[0] && prof[0].username) || '나' };
+};
+
+async function handleTour(action, body, uid) {
+  if (action === 'tour_info') {
+    await rpc('weekly_payout', {}).catch(() => {});      /* 지난 주 상금을 아직 안 줬으면 지금 준다 */
+    const week = kstWeek(), last = weekShift(week, -7);
+    const [score, wins, winners, run] = await Promise.all([
+      rpc('tour_board', { p_week: week, p_limit: 50 }).catch(() => []),
+      rpc('win_board', { p_week: week, p_limit: 50 }).catch(() => []),
+      rpc('weekly_winners', { p_week: last }).catch(() => []),
+      uid ? tourLoad(uid).catch(() => null) : null,
+    ]);
+    const strip = (rows) => (rows || []).map(({ user_id, ...x }) => ({ ...x, me: user_id === uid }));
+    return json({
+      week, last, nextPayout: nextPayoutAt(week), fee: TOUR_FEE, games: TOUR_GAMES,
+      prizes: TOUR_PRIZES, winPrize: WIN_PRIZE,
+      score: strip(score), wins: strip(wins), winners: winners || [],
+      me: tourMe(run),
+      pub: run && run.state && run.state.game ? aiPub(run.state.game) : null,
+    });
+  }
+
+  if (!uid) return fail('대회는 로그인해야 참가할 수 있어요.', 401);
+
+  if (action === 'tour_enter') {
+    if (await hasActiveAi(uid)) return fail('AI 캐시 게임 중에는 대회에 참가할 수 없어요. 그 판을 먼저 끝내 주세요.');
+    const st = await tourDeal(uid);
+    try {
+      await rpc('tour_enter', { p_user: uid, p_fee: TOUR_FEE, p_state: st });
+    } catch (e) {
+      const m = String((e && e.message) || e);
+      const hit = /((?:이미|이번 주|코인이 모자라|관리자)[^"]*?요\.)/.exec(m);
+      return fail(hit ? hit[1] : '대회에 참가하지 못했어요: ' + m.slice(0, 120));
+    }
+    const run = await tourLoad(uid);
+    const events = [];
+    await aiRun(run.state, events);
+    if (events.length) await tourSave(run, { state: run.state });
+    return json({ id: run.id, n: TOUR_PLAYERS, me: tourMe(run), pub: aiPub(run.state.game),
+      start: aiPub(initStateFromDeal(run.state)), events });
+  }
+
+  const run = await tourLoad(uid);
+  if (action === 'tour_withdraw') {
+    const n = Number(await rpc('tour_withdraw', { p_user: uid })) || 0;
+    return json({ withdrawn: n > 0 });
+  }
+  if (!run || run.status !== 'playing') return fail('진행 중인 대회가 없어요.', 404);
+  const st = run.state;
+
+  if (action === 'tour_next') {
+    if (st && st.game && st.game.winner < 0) return fail('아직 두던 판이 끝나지 않았어요.');
+    if (run.games_done >= TOUR_GAMES) return fail('세 판을 모두 두었어요.');
+    if (await hasActiveAi(uid)) return fail('AI 캐시 게임 중에는 대회를 이어 갈 수 없어요.');
+    const next = await tourDeal(uid);
+    const events = [];
+    const start = aiPub(initStateFromDeal(next));
+    await aiRun(next, events);
+    await tourSave(run, { state: next });
+    return json({ id: run.id, n: TOUR_PLAYERS, me: tourMe(run), pub: aiPub(next.game), start, events });
+  }
+
+  if (action === 'tour_play' || action === 'tour_pass') {
+    const g = st && st.game;
+    if (!g || g.winner >= 0) return fail('지금 두는 판이 없어요.');
+    if (g.turn !== 0) return fail('아직 내 차례가 아니에요.');
+    const ms = legalMoves(g);
+    let move = null;
+    if (action === 'tour_pass') move = ms.find((m) => m.type === PASS) || null;
+    else {
+      const want = maskFromCards((body.cards || []).map(Number).filter((c) => c >= 0 && c < 52));
+      move = ms.find((m) => m.type !== PASS && maskEq(m, want)) || null;
+    }
+    if (!move) return fail(action === 'tour_pass' ? '지금은 패스할 수 없어요.' : '낼 수 없는 조합이에요.');
+    const events = [];
+    aiApply(st, move, events);
+    await aiRun(st, events);
+
+    let result = null;
+    if (g.winner >= 0) {
+      const pts = finalPoints(g);
+      const results = (run.results || []).concat([pts[0]]);
+      const done = results.length >= TOUR_GAMES;
+      await tourSave(run, {
+        state: st, results, total: (run.total || 0) + pts[0], games_done: results.length,
+        status: done ? 'done' : 'playing', finished_at: done ? new Date().toISOString() : null,
+      });
+      await recordWin(uid, 'tour', g);
+      await saveLog({
+        source: 'solo', nPlayers: g.n, winnerSeat: g.winner,
+        seats: Array.from({ length: g.n }, (_, i) => i === 0
+          ? { seat: 0, name: st.name || '나', user_id: uid, guest: false, ai: false }
+          : { seat: i, name: 'AI ' + i, user_id: null, guest: false, ai: true }),
+        deal: st.deal, moves: st.moves, points: pts,
+      });
+      result = { points: pts, gameNo: results.length, total: run.total, done };
+    } else {
+      await tourSave(run, { state: st });
+    }
+    return json({ id: run.id, n: TOUR_PLAYERS, me: tourMe(run), pub: aiPub(g), events, result });
+  }
+  return fail('알 수 없는 요청이에요.');
 }
 
 async function hasActiveAi(uid) {
@@ -1508,6 +1662,8 @@ async function handleAi(action, body, uid) {
 
   if (action === 'ai_start') {
     if (!(await aiCashEnabled())) return fail('관리자가 AI 캐시 게임을 꺼 두었어요.', 403);
+    const tr = await tourLoad(uid).catch(() => null);
+    if (tr && tr.status === 'playing') return fail('대회를 진행 중이라 AI 캐시 게임을 할 수 없어요. 대회를 먼저 끝내 주세요.');
     const stake = normStake(body.stake);
     if (stake <= 0) return fail('1점당 금액은 100 ~ 10000 코인 사이에서 100 단위로 골라 주세요.');
     const n = Math.min(4, Math.max(2, parseInt(body.nPlayers, 10) || 4));
@@ -1598,6 +1754,7 @@ async function handle(body, uid) {
   const action = body.action;
 
   if (typeof action === 'string' && action.startsWith('ai_')) return handleAi(action, body, uid);
+  if (typeof action === 'string' && action.startsWith('tour_')) return handleTour(action, body, uid);
 
   if (action === 'admin_rooms' || action === 'admin_stop' || action === 'admin_overview' || action === 'admin_game') {
     if (!(await isAdmin(uid))) return fail('권한이 없어요.', 403);

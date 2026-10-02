@@ -115,7 +115,9 @@ const BOARD_TOP = 25;
  * 정렬과 "1판 이상" 거르기를 서버에서 해야 합니다.
  * 그냥 아무나 받아와서 브라우저에서 줄 세우면,
  * 가입자가 늘었을 때 1등이 명단에 아예 안 들어올 수 있어요. */
+/* 옛 리더보드는 대회 탭의 주간 순위로 바뀌었어요. 표가 없으면 아무것도 하지 않아요 */
 async function loadBoard() {
+  if (!$('lbTable')) return;
   if (!online()) { renderBoard(); return; }
   const mp = ACC.boardMode === 'mp' && ACC.hasMp;
   const totalCol = mp ? 'mp_total' : 'total';
@@ -257,6 +259,7 @@ function renderAccount() {
 }
 
 function renderBoard() {
+  if (!$('lbTable')) return;
   const t = $('lbTable'), note = $('lbNote');
   const mp = ACC.boardMode === 'mp' && ACC.hasMp;
   const F = mp ? ['mp_total', 'mp_games', 'mp_wins'] : ['total', 'games', 'wins'];
@@ -313,6 +316,7 @@ function renderBoard() {
     if (typeof coinOnAuth === 'function') coinOnAuth();
     if (typeof mpOnAuth === 'function') mpOnAuth();
     if (typeof cashOnAuth === 'function') cashOnAuth();
+    if (typeof tourOnAuth === 'function') tourOnAuth();
     return r;
   };
 })();
