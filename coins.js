@@ -260,7 +260,8 @@ function coinRender() {
       <input type="text" id="gAmt" inputmode="numeric" placeholder="금액" value="${esc(COIN.gAmount)}">
       <button class="btn" id="gSend" ${COIN.busy ? 'disabled' : ''}>지급</button>
     </div>
-    <p class="note">내 지갑에서 빠져나갑니다. 전체 발행량은 1억 코인으로 고정이에요.</p>
+    <p class="note">내 지갑에서 빠져나갑니다. 코인은 새로 생기지 않고 자리만 옮겨요${
+      COIN.summary ? ` (전체 발행량 ${won(COIN.summary.issued)}코인)` : ''}.</p>
 
     <h3 class="subhead">회수 (관리자)</h3>
     <div class="sendrow">
