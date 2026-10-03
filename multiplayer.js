@@ -549,6 +549,7 @@ function mpSubscribe() {
 const TABS = {
   solo: { btn: 'tabSolo', views: ['viewSolo', 'viewSolo2', 'viewSoloRight'] },
   mp:   { btn: 'tabMp',   views: ['viewMp', 'viewMpLeft', 'viewMpRight'] },
+  tour: { btn: 'tabTour', views: ['viewTour'] },
 };
 function showTab(which) {
   if (!TABS[which]) which = 'solo';
@@ -560,6 +561,7 @@ function showTab(which) {
   }
   try { localStorage.setItem('thirteen-tab', which); } catch (_) {}
   if (which === 'mp') mpRender();
+  if (which === 'tour' && typeof tourLoad === 'function') tourLoad();
 }
 for (const [key, t] of Object.entries(TABS)) {
   const b = $(t.btn);

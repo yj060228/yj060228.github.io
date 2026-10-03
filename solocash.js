@@ -82,6 +82,21 @@ function cashEnd(result) {
   const pts = result.points;
   for (let p = 0; p < pts.length; p++) UI.totals[p] += pts[p];
   UI.games++;
+  if (UI.cash.kind === 'tour') {                 /* 대회 판: 코인은 오가지 않고 점수만 쌓인다 */
+    say(`<b>${SEAT_NAME(s.winner)} 승리</b> — ` + pts.map((v, p) => `${SEAT_NAME(p)} ${v > 0 ? '+' : ''}${v}`).join(' / '));
+    say(`— 대회 ${result.gameNo}/${TOUR_GAMES_UI}판 끝 · 누적 ${result.total > 0 ? '+' : ''}${result.total}점 —`);
+    banner(result.done
+      ? `대회 세 판 끝! 합계 ${result.total > 0 ? '+' : ''}${result.total}점이에요. 대회 탭에서 순위를 볼 수 있어요.`
+      : `대회 ${result.gameNo}/${TOUR_GAMES_UI}판 끝 · 이번 판 ${pts[0] > 0 ? '+' : ''}${pts[0]}점 · 누적 ${result.total > 0 ? '+' : ''}${result.total}점. 새 게임을 누르면 다음 판이에요.`);
+    UI.cash.done = true;
+    UI.cash.total = result.total;
+    UI.cash.gameNo = result.gameNo;
+    UI.cash.runDone = !!result.done;
+    cashUi(); render();
+    if (typeof myOnGameEnd === 'function') myOnGameEnd();
+    if (typeof tourLoad === 'function') tourLoad(true);
+    return;
+  }
   const coin = Number(result.delta);
   say(`<b>${SEAT_NAME(s.winner)} 승리</b> — ` + pts.map((v, p) => `${SEAT_NAME(p)} ${v > 0 ? '+' : ''}${v}`).join(' / '));
   say(`— 정산 · ${coin >= 0 ? '+' : ''}${coin.toLocaleString()}코인 —`);
@@ -92,6 +107,23 @@ function cashEnd(result) {
   recordGame(pts[0], s.winner === 0);
   if (typeof coinRefresh === 'function') coinRefresh();
   if (typeof myOnGameEnd === 'function') myOnGameEnd();
+}
+
+const TOUR_GAMES_UI = 3;
+
+/* 서버가 두는 판을 화면에 올린다 (AI 캐시 게임 · 대회 공통) */
+async function serverGameBegin(r, info, title) {
+  UI.cash = info;
+  UI.ended = false; UI.running = false; UI.rec = null; UI.cleared = null;
+  UI.selected.clear(); UI.logLines = [];
+  banner('');
+  $('hintPanel').classList.add('hidden');
+  $('evalChip').classList.add('hidden');
+  UI.state = cashState(r.start || r.pub);
+  say(`— ${title} · ${withSubj(SEAT_NAME(UI.state.turn))} 선 —`);
+  cashUi(); render();
+  await cashReplay(r.events || []);
+  if (r.result) cashEnd(r.result);
 }
 
 async function cashCall(action, extra) {
@@ -134,9 +166,10 @@ async function cashPlay(move) {
   if (UI.busy || !UI.cash || UI.cash.done) return;
   UI.busy = true; UI.selected.clear(); render();
   try {
+    const tour = UI.cash.kind === 'tour';
     const r = move.type === PASS
-      ? await cashCall('ai_pass', { id: UI.cash.id })
-      : await cashCall('ai_play', { id: UI.cash.id, cards: maskCards(move) });
+      ? await cashCall(tour ? 'tour_pass' : 'ai_pass', { id: UI.cash.id })
+      : await cashCall(tour ? 'tour_play' : 'ai_play', { id: UI.cash.id, cards: maskCards(move) });
     banner('');
     await cashReplay(r.events || []);
     if (r.result) cashEnd(r.result);
@@ -181,6 +214,7 @@ async function cashResume(quiet) {
       return;
     }
     if (r.enabled !== undefined) CASH.enabled = r.enabled;
+    if (UI.cash && UI.cash.kind === 'tour') { cashUi(); return; }   /* 대회 판은 tour.js 가 맡는다 */
     if (!r.active) {
       /* 화면에서는 두고 있었는데 서버에 판이 없으면, 관리자가 꺼서 취소된 것 */
       if (cashLive()) {
@@ -246,6 +280,8 @@ function cashUi() {
   const live = cashLive();
   const visible = cashVisible();
   const broke = cashBroke() && !live;
+  const tour = !!(UI.cash && UI.cash.kind === 'tour' && !UI.cash.runDone);
+  $('soloCash').parentElement.classList.toggle('hidden', tour);
 
   /* 설정: 개인 보이기 / 관리자 스위치 */
   $('cashPrefRow').classList.toggle('hidden', CASH.enabled !== true);
@@ -254,7 +290,7 @@ function cashUi() {
   $('cashAdminRow').classList.toggle('hidden', !admin);
   if (admin && !$('adminCashOn').disabled) $('adminCashOn').checked = CASH.enabled !== false;
 
-  $('soloCashPanel').classList.toggle('hidden', !visible);
+  $('soloCashPanel').classList.toggle('hidden', !visible && !tour);
   if ((!visible || broke) && !live) $('soloCash').checked = false;
   const on = cashWanted();
   const sel = $('soloStake');
@@ -264,12 +300,21 @@ function cashUi() {
   sel.value = String(CASH.stake);
   $('soloCash').disabled = live || !cashLogged() || broke;
   sel.disabled = live;
-  $('soloStakeRow').classList.toggle('hidden', !on && !live);
-  $('soloCashPanel').classList.toggle('live', live);
+  $('soloStakeRow').classList.toggle('hidden', tour || (!on && !live));
+  $('soloCashPanel').classList.toggle('live', live || tour);
   const chip = $('soloCashChip');
-  chip.classList.toggle('hidden', !live);
-  if (live) chip.textContent = `◈ 1점당 ${UI.cash.stake.toLocaleString()} · 묶임 ${Number(UI.cash.locked).toLocaleString()}`;
-  $('btnForfeit').classList.toggle('hidden', !live);
+  chip.classList.toggle('hidden', !live && !tour);
+  if (tour) {
+    const no = UI.cash.done ? UI.cash.gameNo : (UI.cash.gameNo || 1);
+    chip.textContent = `🏆 대회 ${no}/${TOUR_GAMES_UI}판 · 누적 ${UI.cash.total > 0 ? '+' : ''}${UI.cash.total || 0}점`;
+  } else if (live) chip.textContent = `◈ 1점당 ${UI.cash.stake.toLocaleString()} · 묶임 ${Number(UI.cash.locked).toLocaleString()}`;
+  $('btnForfeit').classList.toggle('hidden', !live || tour);
+  if (tour) {
+    $('soloCashNote').textContent = UI.cash.done
+      ? '이번 판이 끝났어요. 새 게임을 누르면 다음 대회 판을 시작해요.'
+      : '대회 판이에요. 카드와 AI 는 서버가 맡고, 힌트와 판세 예측은 쓸 수 없어요. 세 판을 다 두면 점수 합이 순위표에 올라가요.';
+    return;
+  }
 
   $('soloCashNote').textContent = !cashLogged()
     ? '로그인하면 AI 와 코인을 걸고 둘 수 있어요. 끄면 지금처럼 재미로 둬요.'

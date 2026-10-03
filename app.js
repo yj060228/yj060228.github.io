@@ -390,9 +390,14 @@ async function newGame() {
 /* ───────── 이벤트 ───────── */
 $('btnNew').onclick = () => {
   if (UI.cash && !UI.ended) {
-    alert('캐시 게임 중에는 새 게임을 시작할 수 없어요. 끝까지 두거나 기권해 주세요.');
+    alert(UI.cash.kind === 'tour'
+      ? '대회 판 중에는 새 게임을 시작할 수 없어요. 이 판을 끝까지 둬 주세요.'
+      : '캐시 게임 중에는 새 게임을 시작할 수 없어요. 끝까지 두거나 기권해 주세요.');
     return;
   }
+  /* 대회 판이 끝났고 세 판이 다 안 됐으면 다음 판 */
+  if (UI.cash && UI.cash.kind === 'tour' && !UI.cash.runDone && typeof tourNext === 'function') { tourNext(); return; }
+  if (UI.cash && UI.cash.kind === 'tour') UI.cash = null;
   if (UI.busy) return;
   if (typeof cashWanted === 'function' && cashWanted()) cashStart();   /* solocash.js */
   else newGame();

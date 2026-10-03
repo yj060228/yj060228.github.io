@@ -260,7 +260,10 @@ tr.gap td{text-align:center;color:var(--faint);padding:2px 0;letter-spacing:.3em
 /* ───────── 화면 배치 ─────────
  * 좁은 화면: 모든 판을 한 줄로 쌓는다. 순서는 order 로 정한다.
  * 넓은 화면(1180px 이상): 왼쪽 리더보드 · 대화 / 가운데 게임 / 오른쪽 점수 · 바이인 · 진행 */
-#viewSolo,#viewSolo2,#viewMp,#viewCoins,#viewMy{display:flex;flex-direction:column;gap:12px}
+#viewSolo,#viewSolo2,#viewMp,#viewCoins,#viewMy,#viewTour,#tourBody{display:flex;flex-direction:column;gap:12px}
+.tourme{display:flex;flex-direction:column;gap:2px;padding:8px 11px;border:1px solid var(--gold);background:var(--gold-soft);border-radius:8px}
+#weekBody .subhead{margin:4px 0 2px}
+#weekBody a{color:var(--accent)}
 .layout,.layout>.side,.layout>.center,#viewSoloRight,#viewMpRight,#viewMpLeft{display:contents}
 .center>*{order:1}
 #soloScorePanel,#mpScorePanel{order:2}
@@ -282,7 +285,7 @@ tr.gap td{text-align:center;color:var(--faint);padding:2px 0;letter-spacing:.3em
 #admSide{order:4}
 body.admin-mode .tabs,body.admin-mode #viewSolo,body.admin-mode #viewSolo2,body.admin-mode #viewMp,
 body.admin-mode #viewSoloRight,body.admin-mode #viewMpRight,body.admin-mode #viewMpLeft,
-body.admin-mode #viewMy,body.admin-mode #banner,body.admin-mode #btnNew,body.admin-mode #btnMy,
+body.admin-mode #viewMy,body.admin-mode #viewTour,body.admin-mode #banner,body.admin-mode #btnNew,body.admin-mode #btnMy,
 body.admin-mode #btnSettings,body.admin-mode #modelChip,body.admin-mode .brand .sub{display:none!important}
 body.admin-mode #viewAdmin{display:flex!important}
 body.admin-mode #viewAdminRight{display:contents!important}
@@ -429,14 +432,8 @@ body.modal-open{overflow:hidden}
   <!-- 넓은 화면: 왼쪽 리더보드 · 대화 / 가운데 게임 / 오른쪽 점수 · 진행. 좁은 화면에서는 한 줄로 쌓인다 -->
   <aside class="side left">
     <div class="panel" id="lbPanel">
-      <h2 class="row">리더보드
-        <span class="seg" id="lbMode">
-          <button data-mode="solo" aria-selected="true">AI 전적</button>
-          <button data-mode="mp" aria-selected="false">멀티 전적</button>
-        </span>
-      </h2>
-      <table class="score" id="lbTable"></table>
-      <p class="note" id="lbNote"></p>
+      <h2>이번 주 순위</h2>
+      <div id="weekBody"><p class="note">불러오는 중…</p></div>
     </div>
     <div id="viewMpLeft" hidden>
     <div class="panel hidden" id="mpChatPanel">
@@ -455,6 +452,7 @@ body.modal-open{overflow:hidden}
     <div class="tabs" role="tablist">
       <button id="tabSolo" role="tab" aria-selected="true">AI 연습</button>
       <button id="tabMp" role="tab" aria-selected="false">친구와 대전</button>
+      <button id="tabTour" role="tab" aria-selected="false">대회</button>
     </div>
 
     <div id="viewRules" hidden></div>
@@ -575,6 +573,8 @@ body.modal-open{overflow:hidden}
 
     </div>
 
+    <div id="viewTour" hidden><div id="tourBody"></div></div>
+
     <div id="viewMp" hidden>
       <div class="panel" id="mpPanel">
         <h2>친구와 대전</h2>
@@ -653,17 +653,18 @@ body.modal-open{overflow:hidden}
 </div>
 
 <!-- 배포할 때마다 APP_V 를 바꾸면 브라우저가 옛 파일 대신 새 파일을 받는다 -->
-<script>window.APP_V = '20261001f';</script>
-<script src="config.js?v=20261001f"></script>
-<script src="engine.js?v=20261001f"></script>
-<script src="auth.js?v=20261001f"></script>
-<script src="app.js?v=20261001f"></script>
-<script src="multiplayer.js?v=20261001f"></script>
-<script src="rules.js?v=20261001f"></script>
-<script src="mypage.js?v=20261001f"></script>
-<script src="coins.js?v=20261001f"></script>
-<script src="review.js?v=20261001f"></script>
-<script src="solocash.js?v=20261001f"></script>
-<script src="admin.js?v=20261001f"></script>
+<script>window.APP_V = '20261002a';</script>
+<script src="config.js?v=20261002a"></script>
+<script src="engine.js?v=20261002a"></script>
+<script src="auth.js?v=20261002a"></script>
+<script src="app.js?v=20261002a"></script>
+<script src="multiplayer.js?v=20261002a"></script>
+<script src="rules.js?v=20261002a"></script>
+<script src="mypage.js?v=20261002a"></script>
+<script src="coins.js?v=20261002a"></script>
+<script src="review.js?v=20261002a"></script>
+<script src="solocash.js?v=20261002a"></script>
+<script src="admin.js?v=20261002a"></script>
+<script src="tour.js?v=20261002a"></script>
 </body>
 </html>

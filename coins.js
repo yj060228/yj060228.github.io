@@ -243,6 +243,7 @@ function coinRender() {
       ${COIN.locked ? `<div class="note">캐시 게임에 ${won(COIN.locked)}코인이 묶여 있어요. 판이 끝나면 정산되어 돌아옵니다.</div>` : ''}
     </div>
     ${note}
+    ${typeof dailyHtml === 'function' && !COIN.isAdmin ? dailyHtml() : ''}
 
     <h3 class="subhead">코인 보내기</h3>
     <div class="sendrow">
@@ -282,6 +283,7 @@ function coinRender() {
   };
   keep('cTo', 'to'); keep('cAmt', 'amount'); keep('gTo', 'gTo'); keep('gAmt', 'gAmount');
   keep('rTo', 'rTo'); keep('rAmt', 'rAmount');
+  for (const b of box.querySelectorAll('[data-daily]')) b.onclick = async () => { await dailyClaim(); coinRender(); };
   const send = document.getElementById('cSend');
   if (send) send.onclick = coinSend;
   const grant = document.getElementById('gSend');

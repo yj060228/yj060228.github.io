@@ -92,6 +92,9 @@ create policy "update own" on public.profiles
 1. **SQL Editor**에서 `coins.sql`을 실행합니다. (지갑, 장부, 관리자 함수)
 2. 이어서 `cash_session.sql`을 실행합니다. (캐시 게임 세션 바이인)
 3. 이어서 `ai_cash.sql`을 실행합니다. (AI 와 하는 캐시 게임)
+   이어서 `tour.sql`을 실행합니다. (매일 코인 · 주간 대회 · 승리 순위 · 주간 상금)
+   Database → Extensions 에서 `pg_cron`을 켜 두면 상금이 일요일 밤 자정(한국 시간)에 바로 지급되고,
+   켜지 않으면 그 뒤 처음 누군가 대회 탭을 열 때 지급됩니다. pg_cron 을 나중에 켰다면 `tour.sql`을 한 번 더 실행하세요.
 4. `index.ts`를 Edge Function `thirteen`으로 다시 배포합니다.
    AI 캐시 게임의 AI 는 서버에서 `https://thirteen.kr/weights.bin` 을 받아 씁니다.
    주소가 다르면 Edge Function 의 Secrets 에 `MODEL_URL` 을 넣어 주세요.
