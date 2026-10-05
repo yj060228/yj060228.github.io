@@ -11,7 +11,7 @@
 
 const CASH_MIN_POINTS = 10;      /* 시작하려면 1점당 금액의 10배 (서버와 같게) */
 const CASH_FORFEIT_X = 4;        /* 기권 벌금 배수 (서버와 같게) */
-const SOLO_STAKES = [100, 200, 300, 500, 1000, 2000, 3000, 5000, 10000];
+const SOLO_STAKES = [100, 200, 300, 500, 1000, 2000, 3000, 5000, 10000, 20000, 30000, 50000, 100000, 200000, 300000, 500000, 1000000];
 const CASH = { stake: 100, enabled: null };    /* enabled: 관리자가 켜 뒀는지 (null 이면 아직 모름) */
 
 const cashLogged = () => !!(ACC && ACC.sb && ACC.user);

@@ -778,13 +778,13 @@ async function authUser(req) {
   } catch (_) { return null; }
 }
 
-/* 판돈: 1점당 100 ~ 10000 코인, 100 단위 */
-const STAKE_MIN = 100, STAKE_MAX = 10000, STAKE_STEP = 100;
+/* 판돈: 1점당 100 ~ 1,000,000 코인, 100 단위 */
+const STAKE_MIN = 100, STAKE_MAX = 1000000, STAKE_STEP = 100;
 /* 바이인: 방장이 정합니다. 안 정하면 1점당 금액의 100배 */
 const BUYIN_POINTS = 100;          /* 기본값 */
 const BUYIN_MIN_POINTS = 10;       /* 최소한 10점은 지을 수 있어야 함 */
 const BUYIN_MAX_POINTS = 500;
-const BUYIN_CAP = 5000000;
+const BUYIN_CAP = 500000000;       /* 1점당 100만이면 500점분 = 5억까지 */
 const BUYIN_STEP = 100;
 
 /* 방의 바이인 (옛 방은 buyin 이 0 이라 예전 방식으로) */
@@ -1665,7 +1665,7 @@ async function handleAi(action, body, uid) {
     const tr = await tourLoad(uid).catch(() => null);
     if (tr && tr.status === 'playing') return fail('대회를 진행 중이라 AI 캐시 게임을 할 수 없어요. 대회를 먼저 끝내 주세요.');
     const stake = normStake(body.stake);
-    if (stake <= 0) return fail('1점당 금액은 100 ~ 10000 코인 사이에서 100 단위로 골라 주세요.');
+    if (stake <= 0) return fail('1점당 금액은 100 ~ 1,000,000 코인 사이에서 100 단위로 골라 주세요.');
     const n = Math.min(4, Math.max(2, parseInt(body.nPlayers, 10) || 4));
     seedRng(randomSeed());
     const g = initState(n);
@@ -1798,7 +1798,7 @@ async function handle(body, uid) {
 
     /* 캐시 게임이면 로그인과 코인이 필요하다 */
     const stake = normStake(body.stake);
-    if (stake < 0) return fail('판돈은 1점당 100 ~ 10000 코인 사이에서 100 단위로 골라 주세요.');
+    if (stake < 0) return fail('판돈은 1점당 100 ~ 1,000,000 코인 사이에서 100 단위로 골라 주세요.');
     let buyin = 0;
     if (stake) {
       buyin = normBuyin(stake, body.buyin);
