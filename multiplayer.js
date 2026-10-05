@@ -251,11 +251,11 @@ function mpRenderLobby() {
   $('mpCode').onkeydown = (e) => { if (e.key === 'Enter') $('mpJoin').click(); };
   $('mpName').onkeydown = (e) => { if (e.key === 'Enter') ($('mpCode').value.trim() ? $('mpJoin') : $('mpCreate')).click(); };
 }
-/* 판돈 후보: 1점당 100 ~ 10000 코인 */
-const STAKES = [100, 200, 300, 500, 1000, 2000, 3000, 5000, 10000];
+/* 판돈 후보: 1점당 100 ~ 1,000,000 코인 */
+const STAKES = [100, 200, 300, 500, 1000, 2000, 3000, 5000, 10000, 20000, 30000, 50000, 100000, 200000, 300000, 500000, 1000000];
 /* 바이인 후보는 '몇 점분인지'로 고릅니다. 서버 제한은 10 ~ 500점분 */
 const BUYIN_PTS = [10, 20, 30, 50, 100, 200, 300, 500];
-const buyinChoices = (stake) => BUYIN_PTS.map((p) => p * stake).filter((b) => b <= 5000000);
+const buyinChoices = (stake) => BUYIN_PTS.map((p) => p * stake).filter((b) => b <= 500000000);
 /* 지금 고른 바이인 금액 */
 const mpBuyin = () => {
   const list = buyinChoices(MP.stake);
